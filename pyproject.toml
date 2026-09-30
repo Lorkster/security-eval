@@ -1,0 +1,50 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "security-eval"
+version = "0.0.1"
+description = "Evaluate models, alone and under supervisor-harness, at finding and triaging known vulnerabilities."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+dependencies = []
+
+[project.optional-dependencies]
+# The harness is needed by the baseline and harness runners only. The scorer,
+# SARIF, budget guard, ledger and fake runner work without it, which is what
+# lets the whole pipeline be exercised for free.
+#
+# TODO: pin to a release tag once harness prerequisites P1 and P2 are merged
+# (docs/proposal.md section 3). A moving branch is not a dependency an
+# evaluation can be reproduced against.
+harness = ["supervisor-harness @ git+https://github.com/Lorkster/supervisor-harness@main"]
+dev = ["pytest>=8.0", "ruff>=0.16.5,<0.17", "mypy>=1.11,<2"]
+
+[project.scripts]
+security-eval = "security_eval.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF", "S", "BLE"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "S603", "S607"]
+# The toy benchmark is vulnerable on purpose. That is the point of it.
+"benchmarks/**" = ["S"]
+
+[tool.mypy]
+python_version = "3.11"
+files = ["src/security_eval"]
+strict = true
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

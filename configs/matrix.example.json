@@ -1,0 +1,9 @@
+{
+  "name": "example",
+  "targets": ["../benchmarks/toy-webapp/manifest.json"],
+  "conditions": ["baseline", "harness"],
+  "models": ["anthropic:claude-sonnet-5-5", "anthropic:claude-opus-5-5"],
+  "repeats": 3,
+  "budget_usd": 170.0,
+  "tokens_per_run": { "baseline": [60000, 8000], "harness": [400000, 40000] }
+}

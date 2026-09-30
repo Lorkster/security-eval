@@ -1,0 +1,25 @@
+{
+  "id": "toy-webapp",
+  "root": "src",
+  "language": "python",
+  "public": false,
+  "vulnerabilities": [
+    {"id": "V1", "cwe": "CWE-89",  "path": "app/db.py",      "lines": [11, 12],
+     "description": "username interpolated into SQL with an f-string"},
+    {"id": "V2", "cwe": "CWE-22",  "path": "app/files.py",   "lines": [10, 11],
+     "description": "user-supplied name joined onto the uploads directory unchecked"},
+    {"id": "V3", "cwe": "CWE-78",  "path": "app/tools.py",   "lines": [7, 7],
+     "description": "host interpolated into a shell command"},
+    {"id": "V4", "cwe": "CWE-798", "path": "app/config.py",  "lines": [9, 9],
+     "description": "admin password in source"},
+    {"id": "V5", "cwe": "CWE-502", "path": "app/session.py", "lines": [9, 9],
+     "description": "pickle.loads on a cookie the client controls"}
+  ],
+  "decoys": [
+    {"id": "D1", "path": "app/db.py",      "lines": [16, 17], "description": "parameterised query"},
+    {"id": "D2", "path": "app/files.py",   "lines": [16, 19], "description": "resolved and checked for containment"},
+    {"id": "D3", "path": "app/tools.py",   "lines": [12, 12], "description": "argv list, no shell, -- before the host"},
+    {"id": "D4", "path": "app/config.py",  "lines": [11, 11], "description": "secret read from the environment"},
+    {"id": "D5", "path": "app/session.py", "lines": [13, 13], "description": "json.loads on the same cookie shape"}
+  ]
+}
