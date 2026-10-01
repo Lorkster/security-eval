@@ -61,15 +61,17 @@ The harness already provides, and we reuse as is:
 
 What does not exist anywhere yet, and is this repository:
 
-| Component | Purpose | Skeleton status |
+| Component | Purpose | Status |
 | --- | --- | --- |
-| benchmark manifests | a target plus its answer key: which CWE, which file, which lines; and *decoys*, safe code that looks vulnerable | format + one toy target |
+| benchmark manifests | a target plus its answer key: which CWE, which file, which lines; and *decoys*, safe code that looks vulnerable | format with alternative locations and CWEs; a toy target for plumbing and `notes-api`, a harder one |
 | a security finding format | CWE, file:line location, severity, confidence, triage verdict | done |
 | SARIF in and out | read scanner output (Semgrep, CodeQL) for RQ3; write ours for tooling | minimal 2.1.0 |
-| runners | *baseline* (one model, one prompt), *harness* (supervised run), *fake* (zero-cost, for plumbing) | fake complete; baseline has run for real against a local Ollama model; harness wired, blocked on P2 for Claude models |
+| runners | *baseline* (one model, one prompt), *harness* (supervised run), *fake* (zero-cost, for plumbing) | all three complete; baseline and harness have both run end to end on a local model; the harness is read only through its published CLI |
 | a scorer | deterministic matching of findings to ground truth; no LLM judge | done |
 | a matrix driver | targets × conditions × models × repeats, resumable from a ledger | done |
 | a budget guard | refuses to start a run the remaining budget cannot cover | done |
+| preflight checks | everything checkable before a token is paid for: manifests, prompts, prices, budget, tooling, provider credentials | done |
+| a report | the ledger aggregated into the research questions' numbers, re-scored from saved findings | done |
 
 ## 3. Prerequisites in the harness
 
@@ -80,15 +82,15 @@ cells; each is a pull request against the harness, not a workaround here.
 | | What | Why it matters to us | State |
 | --- | --- | --- | --- |
 | **P1** | `supervisor uninstall` | anything used as a dependency needs a clean way out | **done**: [PR #69](https://github.com/Lorkster/supervisor-harness/pull/69), merged 2026-09-30 |
-| **P2** | provider compatibility with current Claude models | the Anthropic and Bedrock providers always send `temperature: 0.2`. Current Claude models reject sampling parameters with HTTP 400, so **every call to Opus 5.5, Sonnet 5.5 or Sonnet 5 fails** — only Haiku 4.5 and the 4.6 generation work today. The same change should (a) treat a `refusal` stop reason as its own non-retried outcome instead of an empty answer the drift checks then send back for another paid attempt, (b) cache the fixed part of every brief, and record cache tokens in usage, and (c) raise the 4096-token default so thinking models are not truncated into retries | in review: [PR #70](https://github.com/Lorkster/supervisor-harness/pull/70) |
-| **P3** | a structured findings export (`supervisor findings RUN --json`) with location and CWE as fields | today findings carry location only inside free-text evidence, and the only way to read them is by folding the harness's internal state; our adapter does that behind one function so it can be swapped | in review: [PR #73](https://github.com/Lorkster/supervisor-harness/pull/73) |
-| **P4** | `config.roles` is declared but never read | defining narrower security lenses (injection, authn/authz, secrets, dependencies) by configuration does not work; it needs wiring or removing. Until then the harness runs its one built-in security lens | in review: [PR #74](https://github.com/Lorkster/supervisor-harness/pull/74) |
-| **P5** | `supervisor run --json` crashes when stdout is a Windows pipe | the CLI prints non-ASCII to a cp1252 stream and dies *after* the run completes. Found in the first real harness cell. The runner here works around it (forces UTF-8, and falls back to reading the run from its store), but the fix belongs in the CLI | in review: [PR #71](https://github.com/Lorkster/supervisor-harness/pull/71) |
-| **P6** | the drift check stops a lens that is reading, not drifting | in the first real harness cell, the security lens was refocused four times for `no_progress` on turns where it was reading files. The drift model's second opinion called those turns on-brief (0.26) and was not followed. It overlaps an open harness investigation ([#67](https://github.com/Lorkster/supervisor-harness/issues/67)). One run on a local model is a data point, not a diagnosis | in review: [PR #72](https://github.com/Lorkster/supervisor-harness/pull/72) |
+| **P2** | provider compatibility with current Claude models | the Anthropic and Bedrock providers always send `temperature: 0.2`. Current Claude models reject sampling parameters with HTTP 400, so **every call to Opus 5.5, Sonnet 5.5 or Sonnet 5 fails** — only Haiku 4.5 and the 4.6 generation work today. The same change should (a) treat a `refusal` stop reason as its own non-retried outcome instead of an empty answer the drift checks then send back for another paid attempt, (b) cache the fixed part of every brief, and record cache tokens in usage, and (c) raise the 4096-token default so thinking models are not truncated into retries | **done**: [PR #70](https://github.com/Lorkster/supervisor-harness/pull/70), merged 2026-10-01 |
+| **P3** | a structured findings export (`supervisor findings RUN --json`) with location and CWE as fields | today findings carry location only inside free-text evidence, and the only way to read them is by folding the harness's internal state; our adapter does that behind one function so it can be swapped | **done**: [PR #73](https://github.com/Lorkster/supervisor-harness/pull/73), merged 2026-10-01 |
+| **P4** | `config.roles` is declared but never read | defining narrower security lenses (injection, authn/authz, secrets, dependencies) by configuration does not work; it needs wiring or removing. Until then the harness runs its one built-in security lens | **done**: [PR #74](https://github.com/Lorkster/supervisor-harness/pull/74), merged 2026-10-01 |
+| **P5** | `supervisor run --json` crashes when stdout is a Windows pipe | the CLI prints non-ASCII to a cp1252 stream and dies *after* the run completes. Found in the first real harness cell. The runner here works around it (forces UTF-8, and falls back to reading the run from its store), but the fix belongs in the CLI | **done**: [PR #71](https://github.com/Lorkster/supervisor-harness/pull/71), merged 2026-10-01 |
+| **P6** | the drift check stops a lens that is reading, not drifting | in the first real harness cell, the security lens was refocused four times for `no_progress` on turns where it was reading files. The drift model's second opinion called those turns on-brief (0.26) and was not followed. It overlaps an open harness investigation ([#67](https://github.com/Lorkster/supervisor-harness/issues/67)). One run on a local model is a data point, not a diagnosis | **done**: [PR #72](https://github.com/Lorkster/supervisor-harness/pull/72), merged 2026-10-01 |
 
-All five are in review as of 2026-10-01. P2 is the one that blocks the model plan in §6; P5
-has a workaround here. P6 changes a documented harness invariant, so it waits on a
-decision by the harness maintainer.
+All six are merged as of 2026-10-01, and `pyproject.toml` pins the harness to that commit
+(`c8d0a47`). Moving the pin mid-study changes a condition, so it belongs in the
+pre-registration.
 
 ## 4. Experimental design
 
@@ -149,7 +151,7 @@ need data-flow reasoning, or sit beside convincing decoys.
 
 | Week | Milestone | Money spent |
 | --- | --- | --- |
-| 1 | harness P2 in review (P1 is merged); everyone runs the fake-runner matrix locally | none |
+| 1 | everyone runs the fake-runner matrix and `report` locally (the harness prerequisites are merged) | none |
 | 2 | two or three benchmark manifests written and validated; scorer checked by hand against a sample | none |
 | 3 | **pre-registration committed**; then the **viability gate** (§6): every candidate model, a handful of calls each on the toy target | a few dollars |
 | 4 | **pilot**: one target, every condition, one repeat; real token counts replace the estimates | ~5% of the budget |

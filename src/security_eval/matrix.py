@@ -9,6 +9,7 @@ A matrix file:
       "models": ["anthropic:claude-sonnet-5-5"],
       "prompts": ["plain", "context"],        # optional: names in the prompts file
       "prompts_file": "prompts.json",         # optional: default configs/prompts.json
+      "efforts": ["low", "high"],             # optional: effort levels, for models that take one
       "repeats": 3,
       "budget_usd": 25.0,
       "tokens_per_run": {                      # assumptions until the pilot measures them
@@ -54,6 +55,9 @@ class Matrix:
     tokens_per_run: dict[str, tuple[int, int]] = field(default_factory=dict)
     prompts: list[str] = field(default_factory=lambda: ["plain"])
     prompts_file: Path = DEFAULT_PROMPTS
+    #: "" is the provider's default. Only models that take an effort level
+    #: (current Claude models) are affected; see `effort_params`.
+    efforts: list[str] = field(default_factory=lambda: [""])
 
     @classmethod
     def load(cls, path: Path | str) -> Matrix:
@@ -72,6 +76,7 @@ class Matrix:
             prompts=list(data.get("prompts", ["plain"])),
             prompts_file=(_resolve(base, data["prompts_file"]) if "prompts_file" in data
                           else DEFAULT_PROMPTS),
+            efforts=[str(e) for e in data.get("efforts", [""])] or [""],
         )
 
 
@@ -91,19 +96,22 @@ class Cell:
     repeat: int
     manifest: Path
     prompt: str = "plain"
+    effort: str = ""
 
     @property
     def id(self) -> str:
         safe_model = self.model.replace(":", "_").replace("/", "_")
-        return f"{self.target}/{self.condition}/{self.prompt}/{safe_model}/r{self.repeat}"
+        effort = f"@{self.effort}" if self.effort else ""
+        return f"{self.target}/{self.condition}/{self.prompt}/{safe_model}{effort}/r{self.repeat}"
 
 
 def cells(matrix: Matrix, targets: Mapping[Path, Target]) -> list[Cell]:
     out = [
-        Cell(targets[m].id, condition, model, repeat, m, prompt)
+        Cell(targets[m].id, condition, model, repeat, m, prompt, effort)
         for m in matrix.targets
         for condition in matrix.conditions
         for prompt in matrix.prompts
+        for effort in matrix.efforts
         for model in matrix.models
         for repeat in range(1, matrix.repeats + 1)
     ]
@@ -112,10 +120,12 @@ def cells(matrix: Matrix, targets: Mapping[Path, Target]) -> list[Cell]:
     # before anything else starts.
     model_rank = {m: i for i, m in enumerate(matrix.models)}
     prompt_rank = {p: i for i, p in enumerate(matrix.prompts)}
+    effort_rank = {e: i for i, e in enumerate(matrix.efforts)}
     target_rank = {targets[m].id: i for i, m in enumerate(matrix.targets)}
     cond_rank = {c: i for i, c in enumerate(matrix.conditions)}
     return sorted(out, key=lambda c: (c.repeat, model_rank[c.model], prompt_rank[c.prompt],
-                                      target_rank[c.target], cond_rank[c.condition]))
+                                      effort_rank[c.effort], target_rank[c.target],
+                                      cond_rank[c.condition]))
 
 
 def projected_cost(cell: Cell, matrix: Matrix, prices: PriceTable) -> float:
@@ -133,6 +143,8 @@ def estimate(matrix: Matrix, prices: PriceTable) -> dict[str, Any]:
         key = f"{cell.condition} / {cell.model}"
         if len(matrix.prompts) > 1:
             key += f" / {cell.prompt}"
+        if cell.effort:
+            key += f" @ {cell.effort}"
         by_block[key] = by_block.get(key, 0.0) + projected_cost(cell, matrix, prices)
     total = sum(by_block.values())
     return {
@@ -194,7 +206,7 @@ def run_matrix(
         t0 = time.monotonic()
         try:
             result = runner.run(targets[cell.manifest], cell.model, workdir,
-                                available[cell.prompt])
+                                available[cell.prompt], cell.effort)
         except Exception as exc:  # noqa: BLE001 - one broken cell must not end the matrix
             # Recorded as an error, so a resumed matrix retries it. Whatever it
             # spent before failing is unknown and so unrecorded -- the one gap
@@ -221,7 +233,8 @@ def run_matrix(
             seconds=result.seconds or (time.monotonic() - t0),
             findings_path=findings_path.relative_to(out_dir).as_posix(),
             detail=result.detail, started=started,
-            extra={**result.extra, "recall_loose": round(scored.recall(), 4),
+            extra={**result.extra, "manifest": str(cell.manifest),
+                   "recall_loose": round(scored.recall(), 4),
                    "precision_loose": round(scored.precision(), 4)},
         ))
         progress(f"{result.outcome.value:<15} {cell.id}  ${cost:.3f}  "
@@ -237,9 +250,11 @@ def _record(cell: Cell, outcome: Outcome, *, cost: float = 0.0, usage: Usage | N
     return Record(
         cell=cell.id, target=cell.target, condition=cell.condition, model=cell.model,
         repeat=cell.repeat, outcome=outcome, prompt=cell.prompt, prompt_sha=prompt_sha,
+        effort=cell.effort,
         cost_usd=round(cost, 6),
         input_tokens=u.input_tokens, output_tokens=u.output_tokens,
-        cache_read_tokens=u.cache_read_tokens, seconds=round(seconds, 2),
+        cache_read_tokens=u.cache_read_tokens, cache_write_tokens=u.cache_write_tokens,
+        seconds=round(seconds, 2),
         findings_path=findings_path, detail=detail, started=started or _now(),
         finished=_now(), extra=extra or {},
     )

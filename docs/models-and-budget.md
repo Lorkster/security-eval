@@ -101,7 +101,7 @@ call.
 
 ---
 
-## First measurements (one run each, local model, toy target)
+## First measurements (one run each, local model)
 
 Both conditions were run once on `benchmarks/toy-webapp` with a local
 `qwen3.8-code` through Ollama, on 2026-09-30. **n = 1, on a model nobody will use
@@ -116,6 +116,14 @@ numbers illustrate the shape of the trade-off. They don't measure it.
 | tokens in / out | ~1k / ~0.8k | ~42k / ~33k |
 | wall clock | 76 s | 8 min |
 | outcome | ok | `harness_stopped`: the security lens was refocused four times for "no progress" while it was still reading files, and ran out of turns |
+
+A second harness run on the toy target (2026-10-01, with every harness fix
+merged) measured **~63k input / ~12k output tokens**. The security lens was
+stopped again, this time correctly: it repeated the same unreported claim four
+times, and the drift model agreed it was off-brief. The baseline on `notes-api`
+found **5 of 6** flaws with no false positives, and missed the authorisation
+flaw (V4), the one no single line gives away. That is the kind of difference a
+benchmark has to be able to show.
 
 What it already shows:
 
@@ -187,6 +195,13 @@ money from being wasted.
 
 ## Keeping to the budget
 
+- `security-eval check` runs before every `run` and `gate`, and starts nothing
+  if a model is unpriced, a provider has no credentials (tested the way each
+  cell will see it), the budget cannot cover the projection, or a manifest or
+  prompt is wrong. These are the mistakes that otherwise surface on the first
+  paid cell, or the fortieth.
+- `security-eval report` prints the pilot's measured median tokens per run,
+  ready to paste into `tokens_per_run`.
 - `security-eval estimate` projects a matrix's cost from `configs/prices.json`
   and per-run token figures: assumptions at first, the pilot's measurements
   after.

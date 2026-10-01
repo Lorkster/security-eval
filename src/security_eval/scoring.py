@@ -90,8 +90,15 @@ def overlaps(a: Location, b: Location, tolerance: int = DEFAULT_TOLERANCE) -> bo
 
 
 def score(
-    findings: list[SecurityFinding], target: Target, tolerance: int = DEFAULT_TOLERANCE
+    findings: list[SecurityFinding], target: Target, tolerance: int = DEFAULT_TOLERANCE,
+    *, stated_only: bool = False,
 ) -> Score:
+    """Score ``findings`` against ``target``'s answer key.
+
+    ``stated_only`` treats a location recovered from evidence -- rather than
+    stated in the field the model was asked to fill -- as no location at all.
+    Reporting both readings shows how much the recovery rule is doing.
+    """
     result = Score(target=target.id, findings=len(findings),
                    vulnerabilities=len(target.vulnerabilities))
     claimed: set[str] = set()
@@ -99,7 +106,8 @@ def score(
     order = sorted(range(len(findings)), key=lambda i: -findings[i].confidence)
     for index in order:
         finding = findings[index]
-        if finding.location is None:
+        if finding.location is None or (stated_only
+                                        and finding.location_source == "recovered"):
             result.unanchored += 1
             continue
 
@@ -116,7 +124,7 @@ def score(
                 claimed.add(hit.id)
                 result.matches.append(
                     Match(index, hit.id,
-                          cwe_correct=finding.cwe is not None and finding.cwe == hit.cwe)
+                          cwe_correct=finding.cwe is not None and finding.cwe in hit.cwes)
                 )
             continue
 
@@ -132,7 +140,7 @@ def _first_overlap(
     location: Location, issues: list[KnownIssue], tolerance: int
 ) -> KnownIssue | None:
     for issue in issues:
-        if overlaps(location, issue.location, tolerance):
+        if any(overlaps(location, loc, tolerance) for loc in issue.locations):
             return issue
     return None
 

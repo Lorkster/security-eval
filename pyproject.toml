@@ -16,10 +16,11 @@ dependencies = []
 # SARIF, budget guard, ledger and fake runner work without it, which is what
 # lets the whole pipeline be exercised for free.
 #
-# TODO: pin to a release tag once harness prerequisites P1 and P2 are merged
-# (docs/proposal.md section 3). A moving branch is not a dependency an
-# evaluation can be reproduced against.
-harness = ["supervisor-harness @ git+https://github.com/Lorkster/supervisor-harness@main"]
+# Pinned to the commit that merged the last of the prerequisites (P1-P6,
+# docs/proposal.md section 3). A moving branch is not a dependency an evaluation
+# can be reproduced against. Move the pin deliberately, and record it in the
+# pre-registration: a harness change mid-study changes one of the conditions.
+harness = ["supervisor-harness @ git+https://github.com/Lorkster/supervisor-harness@c8d0a47c5a6683ffa467463d9a639a79cc086cc0"]
 dev = ["pytest>=8.0", "ruff>=0.16.5,<0.17", "mypy>=1.11,<2"]
 
 [project.scripts]

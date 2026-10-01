@@ -19,14 +19,15 @@ import asyncio
 import json
 import re
 import time
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 from ..budget import Usage
-from ..finding import SecurityFinding, find_location, normalise_cwe, normalise_severity
+from ..finding import SecurityFinding, locate, normalise_cwe, normalise_severity
 from ..ledger import Outcome
 from ..manifest import Target
-from .base import TASK, RunResult
+from .base import TASK, RunResult, effort_params
 
 # Extensions read into the prompt. Anything else is skipped and named in the
 # result's detail, so a target whose vulnerable file is `.tpl` is noticed.
@@ -74,7 +75,8 @@ class BaselineRunner:
         self.max_chars = max_chars
         self.max_tokens = max_tokens
 
-    def run(self, target: Target, route: str, workdir: Path, task: str = TASK) -> RunResult:
+    def run(self, target: Target, route: str, workdir: Path, task: str = TASK,
+            effort: str = "") -> RunResult:
         code, skipped = pack(target.root)
         if len(code) > self.max_chars:
             return RunResult(
@@ -83,26 +85,39 @@ class BaselineRunner:
                        "not truncated",
             )
         prompt = f"{task}\n\nThe repository:\n\n{code}"
+        params = effort_params(route, effort)
         started = time.monotonic()
         try:
-            text, finish, usage = asyncio.run(self._complete(route, prompt, workdir))
+            answer = asyncio.run(self._complete(route, prompt, workdir, params or {}))
         except Exception as exc:  # noqa: BLE001 - every provider failure is one outcome
             return RunResult(Outcome.ERROR, detail=f"{type(exc).__name__}: {exc}"[:500])
         seconds = time.monotonic() - started
 
+        extra: dict[str, Any] = {"finish_reason": answer.finish, "skipped": skipped[:50],
+                                 "effort": effort if params else ""}
         detail = f"skipped {len(skipped)} non-source file(s)" if skipped else ""
-        if finish == "refusal":
-            return RunResult(Outcome.REFUSED, usage=usage, seconds=seconds, detail=detail)
-        findings = parse_findings(text, route)
+        if answer.refusal is not None:
+            extra["refusal_categories"] = [answer.refusal] if answer.refusal else []
+            return RunResult(Outcome.REFUSED, usage=answer.usage, seconds=seconds,
+                             detail=detail, extra=extra)
+        findings = parse_findings(answer.text, route)
         if findings is None:
-            return RunResult(Outcome.INVALID_OUTPUT, usage=usage, seconds=seconds,
-                             detail=f"finish={finish}; {text[:300]!r}")
-        return RunResult(Outcome.OK, findings, usage, seconds, detail=detail,
-                         extra={"finish_reason": finish, "skipped": skipped[:50]})
+            truncated = answer.finish in ("max_tokens", "length")
+            return RunResult(
+                Outcome.INVALID_OUTPUT, usage=answer.usage, seconds=seconds, extra=extra,
+                detail=("answer truncated at the token limit; " if truncated else "")
+                       + f"finish={answer.finish}; {answer.text[:300]!r}",
+            )
+        return RunResult(Outcome.OK, findings, answer.usage, seconds, detail=detail, extra=extra)
 
-    async def _complete(self, route: str, prompt: str, workdir: Path) -> tuple[str, str, Usage]:
+    async def _complete(self, route: str, prompt: str, workdir: Path,
+                        params: dict[str, Any]) -> Answer:
         from supervisor_harness.config import load_config
-        from supervisor_harness.providers.base import ChatMessage, CompletionRequest
+        from supervisor_harness.providers.base import (
+            ChatMessage,
+            CompletionRequest,
+            ProviderRefusal,
+        )
         from supervisor_harness.providers.router import ModelRouter
 
         config = load_config(workdir)
@@ -117,13 +132,30 @@ class BaselineRunner:
                     json_schema=FINDINGS_SCHEMA,
                     max_tokens=self.max_tokens,
                     timeout=900.0,
+                    extra=params,
                 ),
                 retries=0,
             )
+        except ProviderRefusal as exc:
+            # A refusal is a result. The harness raises it rather than returning
+            # an empty answer, and never retries it; neither does this.
+            return Answer(finish="refusal", refusal=exc.category)
         finally:
             await router.aclose()
         u = response.usage
-        return response.text, response.finish_reason, Usage(u.input_tokens, u.output_tokens)
+        return Answer(
+            text=response.text, finish=response.finish_reason,
+            usage=Usage(u.input_tokens, u.output_tokens,
+                        getattr(u, "cache_read_tokens", 0), getattr(u, "cache_write_tokens", 0)),
+        )
+
+
+@dataclass
+class Answer:
+    text: str = ""
+    finish: str = ""
+    usage: Usage = field(default_factory=Usage)
+    refusal: str | None = None     # the category, "" if none given; None if not refused
 
 
 def pack(root: Path) -> tuple[str, list[str]]:
@@ -163,13 +195,16 @@ def parse_findings(text: str, route: str) -> list[SecurityFinding] | None:
     for item in items:
         if not isinstance(item, dict):
             continue
+        evidence = [str(item["evidence"])] if item.get("evidence") else []
+        location, source = locate(str(item.get("location", "")), *evidence)
         out.append(SecurityFinding(
             title=str(item.get("title", "")),
             cwe=normalise_cwe(item.get("cwe")),
-            location=find_location(str(item.get("location", ""))),
+            location=location,
+            location_source=source,
             severity=normalise_severity(item.get("severity")),
             confidence=_confidence(item.get("confidence")),
-            evidence=[str(item["evidence"])] if item.get("evidence") else [],
+            evidence=evidence,
             recommendation=str(item.get("recommendation", "")),
             source=f"baseline:{route}",
         ))
