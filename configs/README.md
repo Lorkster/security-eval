@@ -7,6 +7,7 @@
 | `matrix.fake.json` | the whole pipeline on the fake runner. Run with `--fake`. Costs nothing, and is where every change is tried first |
 | `matrix.pilot.json` | stage 2: `notes-api`, both conditions, one repeat on the workhorse model at an explicit effort |
 | `matrix.example.json` | the shape of a measurement matrix. Add targets as their manifests are written |
+| `matrix.local.json` | a free trial run on your own code with a local model; see `docs/local-trial-run.md` |
 | `matrix.fix.json` | RQ8: fixes and regression tests for `notes-api`'s flaws, batched; check them with `security-eval verify runs/fix` |
 | `models.json` | training cutoffs for the time-split contamination check. **Empty on purpose**: fill in each from the provider's official model page |
 

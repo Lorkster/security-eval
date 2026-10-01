@@ -21,7 +21,9 @@ of which can kill a path cheaply before the next one spends more.
 | **3. Matrix** | the research questions | the plan below | the rest, under the budget guard |
 
 Never skip a stage to save time. Stage 0 is where most bugs are found, and a
-bug found at stage 3 is paid for once per cell.
+bug found at stage 3 is paid for once per cell. Stage 0 on real code, your own,
+with a local model, is in [`local-trial-run.md`](local-trial-run.md). It also
+measures the tokens per run that every later estimate rests on.
 
 ### Stage 1 is the important one
 

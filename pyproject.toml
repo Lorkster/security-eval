@@ -24,6 +24,9 @@ harness = ["supervisor-harness @ git+https://github.com/Lorkster/supervisor-harn
 # The Message Batches API (half price, Anthropic's own API only). Optional:
 # nothing imports the SDK unless a matrix sets "batch": true.
 batch = ["anthropic>=0.40"]
+# The one scanner that runs everywhere, for RQ3 triage and the free local trial
+# run (docs/local-trial-run.md). Semgrep and Snyk install separately.
+scanners = ["bandit>=1.7"]
 dev = ["pytest>=8.0", "ruff>=0.16.5,<0.17", "mypy>=1.11,<2"]
 
 [project.scripts]

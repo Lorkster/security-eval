@@ -19,6 +19,7 @@ from security_eval.matrix import Matrix, run_matrix
 from security_eval.preflight import run_checks
 from security_eval.report import load_cells, summarise
 from security_eval.runners.base import RunResult
+from security_eval.runners.fake import FakeTriageRunner
 from security_eval.runners.harness import neutral_tree
 from security_eval.timesplit import TimeSplitError, import_fix, looks_like_advisory
 
@@ -355,3 +356,29 @@ def test_triage_on_real_code_is_scored_against_the_reviewers(
     (row,) = score_sheet(sheet, key)["triage"]
     assert row["judged"] == 2, "only what the reviewers decided"
     assert row["accuracy"] == 0.5, "right about db.py, wrong about the import"
+
+
+def test_the_report_describes_real_code_without_scoring_it(
+    tmp_path: Path, prices: PriceTable
+) -> None:
+    from security_eval.report import render_markdown
+
+    real = open_target(tmp_path)
+    assert load_target(real).scans, "the copy keeps the toy target's scan"
+    m = matrix([real], models=["ollama:open-model"], repeats=1,
+               conditions=["baseline", "triage"],
+               tokens_per_run={"baseline": (10, 1), "triage": (10, 1)})
+    out = tmp_path / "out"
+    repeats = reporting(("app/db.py", 11), ("app/db.py", 12), ("app/files.py", 10))
+    run_matrix(m, {"baseline": repeats(), "triage": FakeTriageRunner(accuracy=1.0)}, out,
+               prices, progress=quiet)
+
+    summary = summarise(load_cells(out))
+    row, triage = summary["open"]
+    assert row["findings"]["median"] == 3 and row["places"]["median"] == 2, "repeats count once"
+    assert triage["condition"] == "triage" and sum(triage["verdicts"].values()) > 0
+    assert summary["groups"] == [] and summary["scanners"] == [], "no key to score against"
+    assert summary["triage"] == [], "triage on real code waits for the reviewers too"
+    assert summary["tokens_per_run"]["baseline"] == [10, 1], "the figures a trial run is for"
+    text = render_markdown(summary, title="t", stated_only=False)
+    assert "awaiting adjudication" in text and "recall (ok)" not in text

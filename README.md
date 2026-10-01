@@ -11,7 +11,9 @@ finding is scored against ground truth, and every dollar is recorded.
 - [`docs/working-with-regulated-models.md`](docs/working-with-regulated-models.md),
   on getting the best legitimate results and treating refusals as data;
 - [`docs/preregistration.md`](docs/preregistration.md), filled in and
-  committed before the pilot.
+  committed before the pilot;
+- [`docs/local-trial-run.md`](docs/local-trial-run.md), to try everything on
+  your own code with a local model, for free.
 
 > **Status: ready for the pilot.** Every harness prerequisite is merged, and
 > the dependency is pinned to that commit. Both conditions have run end to end
@@ -42,6 +44,12 @@ With [Ollama](https://ollama.com) running, a real model call is still free:
 ```bash
 security-eval gate ollama:qwen3.8-code:latest --repeats 1
 ```
+
+**Try it on your own code, for free, before paying for anything:**
+[`docs/local-trial-run.md`](docs/local-trial-run.md). It covers snapshotting
+files you own (`security-eval import-code`, local models only by default),
+running every condition on a local model, reading the report, and judging the
+findings. You come away with the measured token figures the budget needs.
 
 ## The stages of spending
 
@@ -178,6 +186,7 @@ src/security_eval/
   sandbox.py         the container fix verification runs in; JUnit reports
   fixes.py           RQ8: apply a proposal, check it stage by stage
   timesplit.py       time-split targets from a real fix commit
+  snapshot.py        real code you own as a target, for a free trial run
   adjudication.py    blind pooling, review sheets, kappa and the open-world metrics
   report.py          the ledger, aggregated into the study's numbers
   runners/
