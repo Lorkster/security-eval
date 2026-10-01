@@ -17,19 +17,23 @@ from .preflight import render as render_checks
 from .preflight import run_checks
 from .report import load_cells, render_markdown, summarise, write_cells_csv
 from .runners.base import Runner
-from .runners.fake import FakeRunner
+from .runners.fake import FakeRunner, FakeTriageRunner
 from .sarif import to_sarif
+from .scanners import ScanError, run_scan, scanner_findings
 from .scoring import score
 
 
-def _runners(fake: bool) -> dict[str, Runner]:
+def _runners(fake: bool, scanner: str = "bandit") -> dict[str, Runner]:
     if fake:
-        # Every condition answered by the fake runner: the whole pipeline, for $0.
-        return {"baseline": FakeRunner(), "harness": FakeRunner(recall=0.8), "fake": FakeRunner()}
+        # Every condition answered by a fake runner: the whole pipeline, for $0.
+        return {"baseline": FakeRunner(), "harness": FakeRunner(recall=0.8),
+                "triage": FakeTriageRunner(scanner), "fake": FakeRunner()}
     from .runners.baseline import BaselineRunner
     from .runners.harness import HarnessRunner
+    from .runners.triage import TriageRunner
 
-    return {"baseline": BaselineRunner(), "harness": HarnessRunner(), "fake": FakeRunner()}
+    return {"baseline": BaselineRunner(), "harness": HarnessRunner(),
+            "triage": TriageRunner(scanner), "fake": FakeRunner()}
 
 
 def cmd_validate(args: argparse.Namespace) -> int:
@@ -76,9 +80,31 @@ def cmd_run(args: argparse.Namespace) -> int:
     if not _preflight(matrix, args):
         return 1
     out = Path(args.out or Path("runs") / matrix.name)
-    ledger = run_matrix(matrix, _runners(args.fake), out, PriceTable.load(args.prices),
-                        dry_run=args.dry_run)
+    if args.batch:
+        matrix.batch = True
+    ledger = run_matrix(matrix, _runners(args.fake, matrix.scanner), out,
+                        PriceTable.load(args.prices), dry_run=args.dry_run,
+                        wait=args.wait, poll_seconds=args.poll)
     _summary(ledger)
+    return 0
+
+
+def cmd_scan(args: argparse.Namespace) -> int:
+    """Run a scanner over a benchmark and record its SARIF in the manifest."""
+    manifest = Path(args.manifest)
+    target = load_target(manifest)
+    out = manifest.parent / "scans" / f"{args.tool}.sarif"
+    command = args.command.split() if args.command else None
+    try:
+        run_scan(target, args.tool, out, command)
+    except ScanError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    data = json.loads(manifest.read_text(encoding="utf-8"))
+    data.setdefault("scans", {})[args.tool] = out.relative_to(manifest.parent).as_posix()
+    manifest.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    found = len(scanner_findings(load_target(manifest), args.tool))
+    print(f"{args.tool}: {found} finding(s) -> {out}; recorded under \"scans\" in {manifest}")
     return 0
 
 
@@ -180,7 +206,22 @@ def build_parser() -> argparse.ArgumentParser:
         p.add_argument("--dry-run", action="store_true", help="say what would run")
         p.add_argument("--skip-check", action="store_true",
                        help="start without the preflight checks")
+        if name == "run":
+            p.add_argument("--batch", action="store_true",
+                           help="batch eligible cells (models on the anthropic route) at "
+                                "half price; same as \"batch\": true in the matrix")
+            p.add_argument("--wait", action="store_true",
+                           help="wait for submitted batches and collect them now")
+            p.add_argument("--poll", type=float, default=60.0, metavar="SECONDS",
+                           help="how often --wait checks a batch (default: 60)")
         p.set_defaults(func=func)
+
+    p = sub.add_parser("scan", help="run a scanner over a benchmark and record its SARIF")
+    p.add_argument("tool", help="bandit, semgrep, snyk, or a name for --command")
+    p.add_argument("manifest")
+    p.add_argument("--command", default="",
+                   help="the command to run instead of a preset; must contain {out}")
+    p.set_defaults(func=cmd_scan)
 
     p = sub.add_parser("check", help="everything checkable about a matrix before spending")
     p.add_argument("matrix")

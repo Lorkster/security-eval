@@ -84,8 +84,15 @@ These settings matter as much as the choice of model:
   reads cost about a tenth of input. The harness does not cache yet
   (prerequisite P2); the baseline runner should.
 - **Batch API: half price** for anything that is one independent request: the
-  baseline condition and RQ3 triage. Results arrive within hours, not seconds,
-  which is fine for a study. The harness's multi-turn runs cannot use it.
+  baseline condition and RQ3 triage (`"batch": true`). **Only Anthropic's own
+  API has it.** Through Bedrock, Vertex, OpenRouter or Ollama the same cells run
+  live at full price, so route the workhorse through `anthropic:` if the budget
+  matters. Results arrive within the hour, at worst within 24. The harness
+  condition, a conversation, always runs live.
+- **Triage is many small requests over the same code.** One request per scanner
+  finding, each with the whole repository. Batched, the repository is
+  prompt-cached across a target's findings, so it is paid for roughly once.
+  Live, it is paid for every time. Run triage batched.
 - **Pin model IDs.** Always the exact ID in the table, recorded in the ledger
   for every cell.
 

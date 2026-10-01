@@ -23,6 +23,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from ..batch import BatchItem, BatchOutcome, Reply, custom_id, harness_body, read_outcome
 from ..budget import Usage
 from ..finding import SecurityFinding, locate, normalise_cwe, normalise_severity
 from ..ledger import Outcome
@@ -112,42 +113,90 @@ class BaselineRunner:
 
     async def _complete(self, route: str, prompt: str, workdir: Path,
                         params: dict[str, Any]) -> Answer:
-        from supervisor_harness.config import load_config
-        from supervisor_harness.providers.base import (
-            ChatMessage,
-            CompletionRequest,
-            ProviderRefusal,
-        )
-        from supervisor_harness.providers.router import ModelRouter
+        return await harness_complete(route=route, system=SYSTEM, user=prompt,
+                                      json_schema=FINDINGS_SCHEMA, max_tokens=self.max_tokens,
+                                      params=params, workdir=workdir)
 
-        config = load_config(workdir)
-        config.routing = {"default": route}
-        router = ModelRouter(config)
-        try:
-            response = await router.complete(
-                "analysis",
-                CompletionRequest(
-                    system=SYSTEM,
-                    messages=[ChatMessage("user", prompt)],
-                    json_schema=FINDINGS_SCHEMA,
-                    max_tokens=self.max_tokens,
-                    timeout=900.0,
-                    extra=params,
-                ),
-                retries=0,
-            )
-        except ProviderRefusal as exc:
-            # A refusal is a result. The harness raises it rather than returning
-            # an empty answer, and never retries it; neither does this.
-            return Answer(finish="refusal", refusal=exc.category)
-        finally:
-            await router.aclose()
-        u = response.usage
-        return Answer(
-            text=response.text, finish=response.finish_reason,
-            usage=Usage(u.input_tokens, u.output_tokens,
-                        getattr(u, "cache_read_tokens", 0), getattr(u, "cache_write_tokens", 0)),
+    # -- batch ---------------------------------------------------------------------------
+
+    def batch_items(self, target: Target, route: str, task: str, effort: str,
+                    cell_id: str, workdir: Path) -> list[BatchItem] | RunResult:
+        """The one request this cell makes, built as the harness would send it.
+
+        A ``RunResult`` instead when the cell cannot be batched at all -- a target
+        too large to send whole is an error here exactly as it is live.
+        """
+        code, _skipped = pack(target.root)
+        if len(code) > self.max_chars:
+            return RunResult(Outcome.ERROR, detail=f"target is {len(code)} chars, over the "
+                                                   f"baseline's {self.max_chars}; not truncated")
+        body = harness_body(
+            route=route, system=SYSTEM, user=f"{task}\n\nThe repository:\n\n{code}",
+            json_schema=FINDINGS_SCHEMA, max_tokens=self.max_tokens,
+            extra=effort_params(route, effort) or {}, workdir=workdir,
         )
+        return [BatchItem(custom_id(cell_id, 0), body)]
+
+    def from_batch(self, target: Target, route: str, outcomes: list[BatchOutcome],
+                   effort: str = "") -> RunResult:
+        reply = read_outcome(outcomes[0]) if outcomes else Reply(error="no result returned")
+        usage = Usage(reply.input_tokens, reply.output_tokens,
+                      reply.cache_read_tokens, reply.cache_write_tokens)
+        extra: dict[str, Any] = {"finish_reason": reply.finish, "batched": True,
+                                 "effort": effort if effort_params(route, effort) else ""}
+        if reply.error:
+            # Errored, canceled or expired: the request did not run, so it is
+            # retried on the next run, like any other error.
+            return RunResult(Outcome.ERROR, usage=usage, detail=f"batch: {reply.error}",
+                             extra=extra)
+        if reply.refusal is not None:
+            extra["refusal_categories"] = [reply.refusal] if reply.refusal else []
+            return RunResult(Outcome.REFUSED, usage=usage, extra=extra)
+        findings = parse_findings(reply.text, route)
+        if findings is None:
+            truncated = reply.finish in ("max_tokens", "length")
+            return RunResult(Outcome.INVALID_OUTPUT, usage=usage, extra=extra,
+                             detail=("answer truncated at the token limit; " if truncated else "")
+                                    + f"finish={reply.finish}; {reply.text[:300]!r}")
+        return RunResult(Outcome.OK, findings, usage, extra=extra)
+
+
+async def harness_complete(*, route: str, system: str, user: str,
+                           json_schema: dict[str, Any] | None, max_tokens: int,
+                           params: dict[str, Any], workdir: Path) -> Answer:
+    """One live call through the harness's own provider layer -- the path every
+    unbatched request in this study takes, whichever condition makes it."""
+    from supervisor_harness.config import load_config
+    from supervisor_harness.providers.base import (
+        ChatMessage,
+        CompletionRequest,
+        ProviderRefusal,
+    )
+    from supervisor_harness.providers.router import ModelRouter
+
+    config = load_config(workdir)
+    config.routing = {"default": route}
+    router = ModelRouter(config)
+    try:
+        response = await router.complete(
+            "analysis",
+            CompletionRequest(system=system, messages=[ChatMessage("user", user)],
+                              json_schema=json_schema, max_tokens=max_tokens, timeout=900.0,
+                              extra=params),
+            retries=0,
+        )
+    except ProviderRefusal as exc:
+        # A refusal is a result. The harness raises it rather than returning an
+        # empty answer, and never retries it; neither does this.
+        return Answer(finish="refusal", refusal=exc.category)
+    finally:
+        await router.aclose()
+    u = response.usage
+    return Answer(
+        text=response.text, finish=response.finish_reason,
+        usage=Usage(u.input_tokens, u.output_tokens,
+                    getattr(u, "cache_read_tokens", 0), getattr(u, "cache_write_tokens", 0)),
+    )
 
 
 @dataclass

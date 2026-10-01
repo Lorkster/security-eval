@@ -111,12 +111,7 @@ def score(
             result.unanchored += 1
             continue
 
-        # Exact beats fuzzy: a finding squarely on a decoy is a decoy hit, even
-        # when the decoy sits within `tolerance` lines of a real vulnerability --
-        # which, in a benchmark built from look-alike pairs, it usually does.
-        hit = _first_overlap(finding.location, target.vulnerabilities, 0)
-        if hit is None and _first_overlap(finding.location, target.decoys, 0) is None:
-            hit = _first_overlap(finding.location, target.vulnerabilities, tolerance)
+        hit = matched_issue(finding.location, target, tolerance)
         if hit is not None:
             if hit.id in claimed:
                 result.duplicates += 1
@@ -134,6 +129,20 @@ def score(
 
     result.missed = [v.id for v in target.vulnerabilities if v.id not in claimed]
     return result
+
+
+def matched_issue(location: Location, target: Target,
+                  tolerance: int = DEFAULT_TOLERANCE) -> KnownIssue | None:
+    """The known vulnerability ``location`` points at, or ``None``.
+
+    Exact beats fuzzy: a location squarely on a decoy is a decoy hit, even when
+    the decoy sits within ``tolerance`` lines of a real vulnerability -- which,
+    in a benchmark built from look-alike pairs, it usually does.
+    """
+    hit = _first_overlap(location, target.vulnerabilities, 0)
+    if hit is None and _first_overlap(location, target.decoys, 0) is None:
+        hit = _first_overlap(location, target.vulnerabilities, tolerance)
+    return hit
 
 
 def _first_overlap(

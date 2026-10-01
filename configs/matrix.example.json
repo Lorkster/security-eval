@@ -1,11 +1,13 @@
 {
   "name": "example",
   "targets": ["../benchmarks/notes-api/manifest.json", "../benchmarks/toy-webapp/manifest.json"],
-  "conditions": ["baseline", "harness"],
+  "conditions": ["baseline", "harness", "triage"],
   "models": ["anthropic:claude-sonnet-5-5", "anthropic:claude-opus-5-5"],
   "prompts": ["plain", "context"],
   "efforts": ["medium"],
+  "batch": true,
+  "scanner": "bandit",
   "repeats": 3,
   "budget_usd": 170.0,
-  "tokens_per_run": { "baseline": [60000, 8000], "harness": [400000, 40000] }
+  "tokens_per_run": { "baseline": [60000, 8000], "harness": [400000, 40000], "triage": [60000, 6000] }
 }

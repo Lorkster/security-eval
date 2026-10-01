@@ -29,7 +29,8 @@ from typing import Any
 from .finding import SecurityFinding
 from .ledger import Ledger, Outcome, Record
 from .manifest import Target, load_target
-from .scoring import DEFAULT_TOLERANCE, Score, score
+from .scanners import label
+from .scoring import DEFAULT_TOLERANCE, Score, TriageScore, score, score_triage
 
 GroupKey = tuple[str, str, str, str]      # condition, model, prompt, effort
 
@@ -39,6 +40,11 @@ class CellResult:
     record: Record
     score: Score | None
     recovered: int = 0
+    triage: TriageScore | None = None
+
+    @property
+    def is_triage(self) -> bool:
+        return self.record.extra.get("kind") == "triage"
 
 
 @dataclass
@@ -88,6 +94,11 @@ def load_cells(out_dir: Path, *, tolerance: int = DEFAULT_TOLERANCE,
             targets[manifest] = load_target(manifest)
         findings = [SecurityFinding.from_dict(f)
                     for f in json.loads(findings_file.read_text(encoding="utf-8"))]
+        if record.extra.get("kind") == "triage":
+            target = targets[manifest]
+            cells.append(CellResult(record, None, triage=score_triage(
+                [f.triage for f in findings], label(findings, target, tolerance))))
+            continue
         cells.append(CellResult(
             record,
             score(findings, targets[manifest], tolerance, stated_only=stated_only),
@@ -99,6 +110,8 @@ def load_cells(out_dir: Path, *, tolerance: int = DEFAULT_TOLERANCE,
 def summarise(cells: list[CellResult]) -> dict[str, Any]:
     groups: dict[GroupKey, Group] = {}
     for c in cells:
+        if c.is_triage:
+            continue
         r = c.record
         key = (r.condition, r.model, r.prompt or "plain", r.effort or "default")
         groups.setdefault(key, Group(key)).cells.append(c)
@@ -136,7 +149,88 @@ def summarise(cells: list[CellResult]) -> dict[str, Any]:
             }
         rows.append(row)
 
-    return {"groups": rows, "by_cwe": _by_cwe(groups), "tokens_per_run": _tokens(cells)}
+    return {"groups": rows, "by_cwe": _by_cwe(groups), "tokens_per_run": _tokens(cells),
+            "triage": _triage(cells), "scanners": _scanners(cells)}
+
+
+def _triage(cells: list[CellResult]) -> list[dict[str, Any]]:
+    """RQ3, per model, prompt and effort: what the model did with the scanner's output.
+
+    The two numbers that answer the company's question: of the findings that
+    were *not* real, how many the model dismissed (noise removed), and of those
+    that were, how many it kept (real issues not lost). Accuracy alone hides the
+    trade between them.
+    """
+    grouped: dict[tuple[str, str, str, str], list[CellResult]] = defaultdict(list)
+    for c in cells:
+        if c.is_triage:
+            r = c.record
+            grouped[(r.model, r.prompt or "triage", r.effort or "default",
+                     str(r.extra.get("tool", "")))].append(c)
+    rows = []
+    for key in sorted(grouped):
+        group = grouped[key]
+        scored = [c.triage for c in group
+                  if c.triage is not None and c.record.outcome is Outcome.OK]
+        triaged = sum(t.total for t in scored)
+        cost = sum(c.record.cost_usd for c in group)
+        rows.append({
+            "model": key[0], "prompt": key[1], "effort": key[2], "scanner": key[3],
+            "cells": len(group),
+            "refusal_rate": round(sum(c.record.outcome is Outcome.REFUSED for c in group)
+                                  / len(group), 4),
+            "accuracy": spread([t.accuracy for t in scored]),
+            "noise_dismissed": spread(_rate(scored, "not_real", "false_positive")),
+            "real_kept": spread(_rate(scored, "real", "true_positive")),
+            "needs_info": spread([t.needs_info / t.total for t in scored if t.total]),
+            "findings_triaged": triaged,
+            "cost_usd": round(cost, 4),
+            "cost_per_finding": round(cost / triaged, 4) if triaged else None,
+        })
+    return rows
+
+
+def _rate(scored: list[TriageScore], label_key: str, verdict: str) -> list[float]:
+    """Per cell: the share of findings with this label that drew this verdict."""
+    out = []
+    for t in scored:
+        row = t.confusion.get(label_key, {})
+        total = sum(row.values())
+        if total:
+            out.append(row.get(verdict, 0) / total)
+    return out
+
+
+def _scanners(cells: list[CellResult]) -> list[dict[str, Any]]:
+    """Each scan in the run's targets, scored on the same answer key as the models.
+
+    Deterministic, so once per target and tool. Strict (CWE) figures are given
+    only where the tool reports CWEs at all; Bandit, for one, does not.
+    """
+    from .scanners import ScanError, scanner_findings
+
+    rows = []
+    seen: set[str] = set()
+    for c in cells:
+        manifest = c.record.extra.get("manifest")
+        if not manifest or manifest in seen:
+            continue
+        seen.add(manifest)
+        target = load_target(manifest)
+        for tool in sorted(target.scans):
+            try:
+                found = scanner_findings(target, tool)
+            except ScanError:
+                continue
+            s = score(found, target)
+            gives_cwe = any(f.cwe for f in found)
+            rows.append({
+                "tool": tool, "target": target.id, "findings": len(found),
+                "recall_loose": round(s.recall(), 4), "precision_loose": round(s.precision(), 4),
+                "recall_strict": round(s.recall(True), 4) if gives_cwe else None,
+                "decoy_hits": s.decoy_hits, "missed": s.missed,
+            })
+    return rows
 
 
 def _by_cwe(groups: dict[GroupKey, Group]) -> list[dict[str, Any]]:
@@ -214,6 +308,31 @@ def render_markdown(summary: dict[str, Any], *, title: str, stated_only: bool) -
         for r in summary["by_cwe"]:
             lines.append(f"| {r['condition']} | {r['model']} | {r['prompt']} | {r['effort']} | "
                          f"{r['cwe']} | {r['found']} / {r['total']} |")
+    if summary.get("scanners"):
+        lines += ["", "## The scanners, on the same answer key", "",
+                  "| tool | target | findings | recall | strict recall | precision | "
+                  "decoy hits | missed |",
+                  "| --- | --- | --- | --- | --- | --- | --- | --- |"]
+        for r in summary["scanners"]:
+            strict = "n/a (no CWEs)" if r["recall_strict"] is None else f"{r['recall_strict']:.2f}"
+            lines.append(f"| {r['tool']} | {r['target']} | {r['findings']} | "
+                         f"{r['recall_loose']:.2f} | {strict} | {r['precision_loose']:.2f} | "
+                         f"{r['decoy_hits']} | {', '.join(r['missed']) or 'none'} |")
+    if summary.get("triage"):
+        lines += ["", "## Triage of scanner output (RQ3)", "",
+                  "**Noise dismissed**: share of not-real findings judged false positive. "
+                  "**Real kept**: share of real ones judged true positive. "
+                  "*needs info* counts as neither.", "",
+                  "| model | prompt | effort | scanner | cells | refused | accuracy | "
+                  "noise dismissed | real kept | needs info | $ / finding |",
+                  "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |"]
+        for r in summary["triage"]:
+            cpf = r["cost_per_finding"]
+            lines.append(
+                f"| {r['model']} | {r['prompt']} | {r['effort']} | {r['scanner']} | "
+                f"{r['cells']} | {r['refusal_rate']:.0%} | {_fmt(r['accuracy'])} | "
+                f"{_fmt(r['noise_dismissed'])} | {_fmt(r['real_kept'])} | "
+                f"{_fmt(r['needs_info'])} | {'—' if cpf is None else f'${cpf:.3f}'} |")
     if summary["tokens_per_run"]:
         lines += ["", "## Measured tokens per run (median, input incl. cache / output)", "",
                   "Put these in the matrix's `tokens_per_run` before estimating the next one:",

@@ -33,11 +33,19 @@ import stat
 import sys
 import time
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from .batch import (
+    AnthropicBatchClient,
+    BatchClient,
+    BatchItem,
+    BatchOutcome,
+    BatchStore,
+    supports_batch,
+)
 from .budget import BudgetExceeded, BudgetGuard, PriceTable, Usage
 from .ledger import Ledger, Outcome, Record
 from .manifest import Target, load_target
@@ -58,6 +66,14 @@ class Matrix:
     #: "" is the provider's default. Only models that take an effort level
     #: (current Claude models) are affected; see `effort_params`.
     efforts: list[str] = field(default_factory=lambda: [""])
+    #: Send eligible cells through the Message Batches API at half price. Only
+    #: models on the `anthropic` route are eligible; everything else runs live.
+    batch: bool = False
+    #: The scanner whose output the triage condition judges.
+    scanner: str = "bandit"
+    #: The prompt the triage condition uses (from the prompts file). Triage has
+    #: its own task, so the `prompts` dimension does not apply to it.
+    triage_prompt: str = "triage"
 
     @classmethod
     def load(cls, path: Path | str) -> Matrix:
@@ -77,7 +93,22 @@ class Matrix:
             prompts_file=(_resolve(base, data["prompts_file"]) if "prompts_file" in data
                           else DEFAULT_PROMPTS),
             efforts=[str(e) for e in data.get("efforts", [""])] or [""],
+            batch=bool(data.get("batch", False)),
+            scanner=str(data.get("scanner", "bandit")),
+            triage_prompt=str(data.get("triage_prompt", "triage")),
         )
+
+    def prompts_for(self, condition: str) -> list[str]:
+        return [self.triage_prompt] if condition == "triage" else self.prompts
+
+    def batched(self, cell: Cell) -> bool:
+        """Whether this cell goes through the Batches API rather than live."""
+        return self.batch and cell.condition in BATCHABLE and supports_batch(cell.model)
+
+
+#: Conditions that can be batched: one-shot requests. The harness condition is a
+#: conversation -- each turn depends on the last -- so it always runs live.
+BATCHABLE = frozenset({"baseline", "triage"})
 
 
 def _resolve(base: Path, raw: str) -> Path:
@@ -110,7 +141,7 @@ def cells(matrix: Matrix, targets: Mapping[Path, Target]) -> list[Cell]:
         Cell(targets[m].id, condition, model, repeat, m, prompt, effort)
         for m in matrix.targets
         for condition in matrix.conditions
-        for prompt in matrix.prompts
+        for prompt in matrix.prompts_for(condition)
         for effort in matrix.efforts
         for model in matrix.models
         for repeat in range(1, matrix.repeats + 1)
@@ -119,7 +150,7 @@ def cells(matrix: Matrix, targets: Mapping[Path, Target]) -> list[Cell]:
     # repeat of the first model and prompt covers every target and condition
     # before anything else starts.
     model_rank = {m: i for i, m in enumerate(matrix.models)}
-    prompt_rank = {p: i for i, p in enumerate(matrix.prompts)}
+    prompt_rank = {p: i for i, p in enumerate([*matrix.prompts, matrix.triage_prompt])}
     effort_rank = {e: i for i, e in enumerate(matrix.efforts)}
     target_rank = {targets[m].id: i for i, m in enumerate(matrix.targets)}
     cond_rank = {c: i for i, c in enumerate(matrix.conditions)}
@@ -128,11 +159,13 @@ def cells(matrix: Matrix, targets: Mapping[Path, Target]) -> list[Cell]:
                                       cond_rank[c.condition]))
 
 
-def projected_cost(cell: Cell, matrix: Matrix, prices: PriceTable) -> float:
+def projected_cost(cell: Cell, matrix: Matrix, prices: PriceTable, *,
+                   batch: bool | None = None) -> float:
     tokens = matrix.tokens_per_run.get(cell.condition)
     if tokens is None:
         raise KeyError(f"tokens_per_run has no figure for condition {cell.condition!r}")
-    return prices.cost(cell.model, Usage(*tokens))
+    batched = matrix.batched(cell) if batch is None else batch
+    return prices.cost(cell.model, Usage(*tokens), batch=batched)
 
 
 def estimate(matrix: Matrix, prices: PriceTable) -> dict[str, Any]:
@@ -166,26 +199,50 @@ def run_matrix(
     *,
     dry_run: bool = False,
     progress: Callable[[str], None] = print,
+    batch_client: BatchClient | None = None,
+    wait: bool = False,
+    poll_seconds: float = 60.0,
 ) -> Ledger:
-    """Run every cell not already finished, under the budget guard."""
-    from .scoring import score
+    """Run every cell not already finished, under the budget guard.
 
+    With ``matrix.batch``, eligible cells are submitted as one batch instead of
+    run live, and collected on a later invocation (or now, with ``wait``).
+    Anything finished in a batch submitted earlier is collected first.
+    """
     ledger = Ledger(out_dir / "ledger.jsonl")
-    done = ledger.finished()
-    guard = BudgetGuard(matrix.budget_usd, ledger.spent()) if matrix.budget_usd > 0 else None
     targets = {m: load_target(m) for m in matrix.targets}
     available = load_prompts(matrix.prompts_file)
-    unknown = [p for p in matrix.prompts if p not in available]
+    needed = {p for c in matrix.conditions for p in matrix.prompts_for(c)}
+    unknown = sorted(needed - set(available))
     if unknown:
         raise KeyError(f"prompt(s) {unknown} are not in {matrix.prompts_file}")
+    plan = cells(matrix, targets)
+    by_id = {c.id: c for c in plan}
+    store = BatchStore(out_dir / "batches.json")
+    run = _Run(matrix, runners, out_dir, prices, ledger, targets, available, progress)
 
-    for cell in cells(matrix, targets):
-        if cell.id in done:
+    if store.pending() and not dry_run:
+        client = batch_client or AnthropicBatchClient(out_dir)
+        _collect(store, client, run, by_id)
+
+    done = ledger.finished()
+    pending = store.pending_cells()
+    # In flight is spent, as far as the budget is concerned: a re-run while a
+    # batch is out must not start work the batch's cost has already claimed.
+    guard = (BudgetGuard(matrix.budget_usd, ledger.spent() + sum(pending.values()))
+             if matrix.budget_usd > 0 else None)
+
+    to_batch: list[tuple[Cell, float]] = []
+    for cell in plan:
+        if cell.id in done or cell.id in pending:
             continue
         runner = runners.get(cell.condition)
         if runner is None:
             raise KeyError(f"no runner for condition {cell.condition!r}")
-        projected = projected_cost(cell, matrix, prices)
+        # Only a runner that can build batch requests is batched; the fake runners
+        # cannot, so a --fake matrix always runs live.
+        batched = matrix.batched(cell) and hasattr(runner, "batch_items")
+        projected = projected_cost(cell, matrix, prices, batch=batched)
         if guard is not None:
             try:
                 guard.check(projected, cell.id)
@@ -194,16 +251,17 @@ def run_matrix(
                                       prompt_sha=prompt_hash(available[cell.prompt])))
                 progress(f"skip  {cell.id}: {exc}")
                 continue
+            if batched:
+                guard.record(projected)     # claimed now; settled when collected
         if dry_run:
-            progress(f"would run {cell.id} (~${projected:.2f})")
+            progress(f"would {'batch' if batched else 'run'} {cell.id} (~${projected:.2f})")
+            continue
+        if batched:
+            to_batch.append((cell, projected))
             continue
 
-        workdir = out_dir / "cells" / cell.id
-        if workdir.exists():
-            remove_tree(workdir)   # a previous attempt at a non-final cell
-        workdir.mkdir(parents=True)
-        started = _now()
-        t0 = time.monotonic()
+        workdir = run.fresh_workdir(cell)
+        started, t0 = _now(), time.monotonic()
         try:
             result = runner.run(targets[cell.manifest], cell.model, workdir,
                                 available[cell.prompt], cell.effort)
@@ -212,34 +270,147 @@ def run_matrix(
             # spent before failing is unknown and so unrecorded -- the one gap
             # in the ledger's accounting, and why runners return errors rather
             # than raise them.
-            detail = f"runner raised {type(exc).__name__}: {exc}"
-            result = RunResult(Outcome.ERROR, detail=detail[:500])
+            result = RunResult(Outcome.ERROR, detail=f"runner raised {type(exc).__name__}: "
+                                                     f"{exc}"[:500])
+        cost = run.finish(cell, runner, result, workdir, started, t0, batched=False)
+        if guard is not None:
+            guard.record(cost)
+
+    if to_batch:
+        client = batch_client or AnthropicBatchClient(out_dir)
+        _submit(store, client, run, to_batch)
+
+    while wait and store.pending() and not dry_run:
+        client = batch_client or AnthropicBatchClient(out_dir)
+        progress(f"waiting {poll_seconds:.0f}s for {len(store.pending())} batch(es)...")
+        time.sleep(poll_seconds)
+        _collect(store, client, run, by_id)
+    for batch in store.pending():
+        progress(f"batch {batch.batch_id}: {len(batch.cells)} cell(s) in flight; run again "
+                 "to collect (most finish within an hour, all within 24)")
+    return ledger
+
+
+@dataclass
+class _Run:
+    """What finishing a cell needs, whether it ran live or came back from a batch."""
+
+    matrix: Matrix
+    runners: Mapping[str, Runner]
+    out_dir: Path
+    prices: PriceTable
+    ledger: Ledger
+    targets: Mapping[Path, Target]
+    prompts: Mapping[str, str]
+    progress: Callable[[str], None]
+
+    def fresh_workdir(self, cell: Cell) -> Path:
+        workdir = self.out_dir / "cells" / cell.id
+        if workdir.exists():
+            remove_tree(workdir)   # a previous attempt at a non-final cell
+        workdir.mkdir(parents=True)
+        return workdir
+
+    def finish(self, cell: Cell, runner: Runner, result: RunResult, workdir: Path,
+               started: str, t0: float, *, batched: bool) -> float:
+        """Score, save and record one cell; return what it cost."""
+        from .scoring import score, score_triage
 
         # The fake runner reports plausible token counts so projections can be
         # exercised, but no money moved, and the ledger must not say it did.
-        cost = 0.0 if runner.condition == "fake" else prices.cost(cell.model, result.usage)
-        if guard is not None:
-            guard.record(cost)
+        cost = (0.0 if runner.condition == "fake"
+                else self.prices.cost(cell.model, result.usage, batch=batched))
         findings_path = workdir / "findings.json"
         findings_path.write_text(
-            json.dumps([f.to_dict() for f in result.findings], indent=2), encoding="utf-8"
-        )
-        scored = score(result.findings, targets[cell.manifest])
-        (workdir / "score.json").write_text(json.dumps(scored.to_dict(), indent=2),
-                                            encoding="utf-8")
-        ledger.append(_record(
-            cell, result.outcome, prompt_sha=prompt_hash(available[cell.prompt]),
+            json.dumps([f.to_dict() for f in result.findings], indent=2), encoding="utf-8")
+        target = self.targets[cell.manifest]
+        extra: dict[str, Any] = {**result.extra, "manifest": str(cell.manifest)}
+        if getattr(runner, "kind", "detect") == "triage":
+            from .scanners import label
+
+            triaged = score_triage([f.triage for f in result.findings],
+                                   label(result.findings, target))
+            (workdir / "score.json").write_text(json.dumps(asdict(triaged), indent=2),
+                                                encoding="utf-8")
+            extra["kind"] = "triage"
+            extra["triage_accuracy"] = round(triaged.accuracy, 4)
+            summary = f"triage accuracy {triaged.accuracy:.2f} over {triaged.total}"
+        else:
+            scored = score(result.findings, target)
+            (workdir / "score.json").write_text(json.dumps(scored.to_dict(), indent=2),
+                                                encoding="utf-8")
+            extra["recall_loose"] = round(scored.recall(), 4)
+            extra["precision_loose"] = round(scored.precision(), 4)
+            summary = f"recall {scored.recall():.2f}  precision {scored.precision():.2f}"
+        self.ledger.append(_record(
+            cell, result.outcome, prompt_sha=prompt_hash(self.prompts[cell.prompt]),
             cost=cost, usage=result.usage,
             seconds=result.seconds or (time.monotonic() - t0),
-            findings_path=findings_path.relative_to(out_dir).as_posix(),
-            detail=result.detail, started=started,
-            extra={**result.extra, "manifest": str(cell.manifest),
-                   "recall_loose": round(scored.recall(), 4),
-                   "precision_loose": round(scored.precision(), 4)},
+            findings_path=findings_path.relative_to(self.out_dir).as_posix(),
+            detail=result.detail, started=started, extra=extra,
         ))
-        progress(f"{result.outcome.value:<15} {cell.id}  ${cost:.3f}  "
-                 f"recall {scored.recall():.2f}  precision {scored.precision():.2f}")
-    return ledger
+        self.progress(f"{result.outcome.value:<15} {cell.id}  ${cost:.3f}  {summary}"
+                      + ("  [batch]" if batched else ""))
+        return cost
+
+
+def _submit(store: BatchStore, client: BatchClient, run: _Run,
+            to_batch: list[tuple[Cell, float]]) -> None:
+    items: list[BatchItem] = []
+    index: dict[str, dict[str, Any]] = {}
+    cells_info: dict[str, dict[str, Any]] = {}
+    for cell, projected in to_batch:
+        runner = run.runners[cell.condition]
+        workdir = run.fresh_workdir(cell)
+        built = runner.batch_items(run.targets[cell.manifest], cell.model,  # type: ignore[attr-defined]
+                                   run.prompts[cell.prompt], cell.effort, cell.id, workdir)
+        if isinstance(built, RunResult):
+            # Cannot be sent at all (a target too large, a missing scan): an
+            # error now, exactly as it would be live.
+            run.finish(cell, runner, built, workdir, _now(), time.monotonic(), batched=True)
+            continue
+        if not built:
+            run.finish(cell, runner, runner.from_batch(  # type: ignore[attr-defined]
+                run.targets[cell.manifest], cell.model, [], cell.effort),
+                workdir, _now(), time.monotonic(), batched=True)
+            continue
+        for i, item in enumerate(built):
+            items.append(item)
+            index[item.custom_id] = {"cell": cell.id, "index": i}
+        cells_info[cell.id] = {"projected": projected, "n": len(built)}
+    if not items:
+        return
+    batch_id = client.submit(items)
+    store.record(batch_id, index, cells_info)
+    run.progress(f"submitted batch {batch_id}: {len(cells_info)} cell(s), "
+                 f"{len(items)} request(s), at the batch price")
+
+
+def _collect(store: BatchStore, client: BatchClient, run: _Run, by_id: Mapping[str, Cell]) -> None:
+    for batch in store.pending():
+        status = client.status(batch.batch_id)
+        if status != "ended":
+            continue
+        outcomes: dict[str, list[tuple[int, BatchOutcome]]] = {}
+        for outcome in client.results(batch.batch_id):
+            entry = batch.items.get(outcome.custom_id)
+            if entry is None:
+                continue
+            outcomes.setdefault(entry["cell"], []).append((int(entry["index"]), outcome))
+        for cell_id in batch.cells:
+            cell = by_id.get(cell_id)
+            if cell is None:
+                continue        # no longer in this matrix; its spend is still in the batch
+            ordered = [o for _, o in sorted(outcomes.get(cell_id, []), key=lambda p: p[0])]
+            runner = run.runners[cell.condition]
+            workdir = run.out_dir / "cells" / cell.id
+            workdir.mkdir(parents=True, exist_ok=True)
+            result = runner.from_batch(run.targets[cell.manifest], cell.model,  # type: ignore[attr-defined]
+                                       ordered, cell.effort)
+            result.extra["batch_id"] = batch.batch_id
+            run.finish(cell, runner, result, workdir, batch.submitted, time.monotonic(),
+                       batched=True)
+        store.mark_collected(batch.batch_id)
 
 
 def _record(cell: Cell, outcome: Outcome, *, cost: float = 0.0, usage: Usage | None = None,

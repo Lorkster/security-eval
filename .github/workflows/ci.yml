@@ -19,7 +19,7 @@ jobs:
           python-version: ${{ matrix.python }}
       # With the harness, so the adapter tests run rather than skip. They are
       # the ones that notice when the harness changes under us.
-      - run: pip install -e ".[dev,harness]"
+      - run: pip install -e ".[dev,harness,batch]"
       - run: python -m ruff check .
       - run: python -m mypy
       - run: python -m pytest -q

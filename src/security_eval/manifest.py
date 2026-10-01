@@ -68,6 +68,8 @@ class Target:
     vulnerabilities: list[KnownIssue] = field(default_factory=list)
     decoys: list[KnownIssue] = field(default_factory=list)
     manifest_path: Path | None = None
+    #: Scanner output kept beside the benchmark: tool -> SARIF file.
+    scans: dict[str, Path] = field(default_factory=dict)
 
 
 class ManifestError(ValueError):
@@ -91,6 +93,8 @@ def load_target(manifest: Path | str) -> Target:
                          for v in data.get("vulnerabilities", [])],
         decoys=[_issue(d, path, "decoys") for d in data.get("decoys", [])],
         manifest_path=path,
+        scans={str(tool): (path.parent / str(rel)).resolve()
+               for tool, rel in (data.get("scans") or {}).items()},
     )
     problems = validate(target)
     if problems:
@@ -146,6 +150,9 @@ def validate(target: Target) -> list[str]:
                     f"{issue.id}: lines {loc.start_line}-{loc.end_line} "
                     f"run past the end of {loc.path} ({n_lines} lines)"
                 )
+    for tool, scan in target.scans.items():
+        if not scan.is_file():
+            problems.append(f"scan {tool}: {scan} does not exist")
     for vuln in target.vulnerabilities:
         if vuln.cwe is None:
             problems.append(f"{vuln.id}: a vulnerability needs a CWE")
