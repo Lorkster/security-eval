@@ -11,8 +11,10 @@ it):
    everything that is *not* the known flaw -- real code can hold real bugs
    nobody has filed yet, and calling them false positives would be wrong.
 2. **Judge, blind.** Two reviewers judge each candidate -- ``tp``, ``fp`` or
-   ``unsure`` -- on a sheet that does not say who reported it. The order is
-   shuffled. The key linking candidates to their sources is a separate file.
+   ``unsure`` -- without being told who reported it. The order is shuffled. The
+   key linking candidates to their sources is a separate file. ``review.html``
+   (`review_page`) is where they read and judge; each downloads a sheet with
+   their own column filled, and ``import`` merges them.
 3. **Score.** Agreement between reviewers (Cohen's kappa); disagreements listed
    for resolution in the ``final`` column. Then per condition and model:
    precision, verified findings no scanner reported (*beyond the scanners*),
@@ -42,8 +44,11 @@ from .scanners import ScanError, scanner_findings
 from .scoring import DEFAULT_TOLERANCE, matched_issue, overlaps, score_triage
 
 VERDICTS = ("tp", "fp", "unsure")
-SHEET_COLUMNS = ["candidate", "target", "location", "cwe_suggested", "what_was_reported",
-                 "code", "reviewer_a", "reviewer_b", "final", "notes"]
+#: The sheet is for the record and for `import`; reading a candidate happens on
+#: the review page, so the sheet carries no code or report text.
+SHEET_COLUMNS = ["candidate", "target", "location", "cwe_suggested", "reviewer_a",
+                 "reviewer_b", "final", "notes"]
+VERDICT_COLUMNS = ("reviewer_a", "reviewer_b", "final")
 
 
 @dataclass
@@ -156,7 +161,12 @@ def _as_location(c: Candidate) -> Any:
 
 def export(run_dirs: list[Path], sheet: Path, key: Path, *, seed: int = 0,
            tolerance: int = DEFAULT_TOLERANCE) -> int:
-    """Write the blind review sheet and the separate key; return the number of candidates."""
+    """Write the blind sheet, its review page and the separate key; return the candidates.
+
+    The page is ``review.html`` beside the sheet.
+    """
+    from . import review_page
+
     candidates = pool(run_dirs, tolerance)
     random.Random(seed).shuffle(candidates)   # noqa: S311 - order, not secrecy
     roots = _roots(run_dirs)
@@ -164,25 +174,47 @@ def export(run_dirs: list[Path], sheet: Path, key: Path, *, seed: int = 0,
     key_data: dict[str, Any] = {"created": datetime.now(UTC).isoformat(timespec="seconds"),
                                 "seed": seed, "runs": [str(r) for r in run_dirs],
                                 "candidates": {}}
+    items: list[dict[str, Any]] = []
     with sheet.open("w", newline="", encoding="utf-8") as fh:
         writer = csv.DictWriter(fh, fieldnames=SHEET_COLUMNS)
         writer.writeheader()
         for n, c in enumerate(candidates, 1):
             cid = f"C{n:04d}"
-            writer.writerow({
-                "candidate": cid, "target": c.target,
-                "location": f"{c.path}:{c.start}-{c.end}" if c.path else "(no location given)",
-                "cwe_suggested": ", ".join(sorted({f.cwe for f in c.findings if f.cwe})),
-                "what_was_reported": " / ".join(_unique(_strip_rule(f) for f in c.findings)[:3]),
-                "code": _excerpt(roots.get(c.target), c),
-                "reviewer_a": "", "reviewer_b": "", "final": "", "notes": "",
-            })
+            location = f"{c.path}:{c.start}-{c.end}" if c.path else "(no location given)"
+            cwe = ", ".join(sorted({f.cwe for f in c.findings if f.cwe}))
+            writer.writerow({"candidate": cid, "target": c.target, "location": location,
+                             "cwe_suggested": cwe, "reviewer_a": "", "reviewer_b": "",
+                             "final": "", "notes": ""})
             key_data["candidates"][cid] = {
                 "target": c.target, "path": c.path, "start": c.start, "end": c.end,
                 "sources": [s.__dict__ for s in c.sources],
             }
+            first, lines = _excerpt(roots.get(c.target), c)
+            items.append({"id": cid, "target": c.target, "location": location, "cwe": cwe,
+                          "start": c.start, "end": c.end, "first": first, "lines": lines,
+                          "reports": _reports(c.findings)})
     key.write_text(json.dumps(key_data, indent=2), encoding="utf-8")
+    (sheet.parent / "review.html").write_text(review_page.render(
+        items, title=f"Review: {len(items)} candidate(s)",
+        sheet_id=f"{key_data['created']}:{seed}", columns=SHEET_COLUMNS,
+        base_name=sheet.stem), encoding="utf-8")
     return len(candidates)
+
+
+def _reports(findings: list[SecurityFinding]) -> list[dict[str, str]]:
+    """What was said about a candidate, once per distinct report, with no source on it."""
+    out: list[dict[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for f in findings:
+        title = _strip_rule(f)
+        detail = f.detail.strip() if f.detail.strip() != title else ""
+        if (title, detail) in seen:
+            continue
+        seen.add((title, detail))
+        out.append({"title": title, "detail": detail[:1500],
+                    "evidence": " | ".join(e.strip() for e in f.evidence[:3])[:1500],
+                    "recommendation": f.recommendation.strip()[:1000]})
+    return out
 
 
 def _roots(run_dirs: list[Path]) -> dict[str, Path]:
@@ -201,23 +233,17 @@ def _strip_rule(f: SecurityFinding) -> str:
     return text.split(":", 1)[1].strip() if text[:1].isupper() and text[1:5].isdigit() else text
 
 
-def _unique(items: Any) -> list[str]:
-    out: list[str] = []
-    for item in items:
-        if item and item not in out:
-            out.append(item)
-    return out
-
-
-def _excerpt(root: Path | None, c: Candidate, context: int = 2, limit: int = 40) -> str:
+def _excerpt(root: Path | None, c: Candidate, context: int = 4,
+             limit: int = 80) -> tuple[int, list[str]]:
+    """The flagged lines and a few around them: the first line's number, and the lines."""
     if root is None or not c.path:
-        return ""
+        return 0, []
     file = root / c.path
     if not file.is_file():
-        return ""
+        return 0, []
     lines = file.read_text(encoding="utf-8", errors="replace").splitlines()
     first, last = max(1, c.start - context), min(len(lines), c.end + context)
-    return "\n".join(f"{n:>5}  {lines[n - 1]}" for n in range(first, min(last, first + limit) + 1))
+    return first, lines[first - 1:min(last, first + limit - 1)]
 
 
 # -- import --------------------------------------------------------------------------
@@ -247,28 +273,56 @@ def cohens_kappa(pairs: list[tuple[str, str]]) -> float | None:
     return 1.0 if expected == 1 else round((observed - expected) / (1 - expected), 4)
 
 
-def score_sheet(sheet: Path, key: Path, *, attacker_proxies: list[str] | None = None,
-                ) -> dict[str, Any]:
+def merge_sheets(sheets: list[Path]) -> dict[str, dict[str, str]]:
+    """The sheets' verdicts by candidate, one sheet per reviewer or all in one.
+
+    A verdict column filled in two sheets with different answers is an error,
+    not a silent choice between them. Notes are kept from every sheet.
+    """
+    merged: dict[str, dict[str, str]] = {}
+    for sheet in sheets:
+        with sheet.open(encoding="utf-8-sig") as fh:
+            for line in csv.DictReader(fh):
+                cid = (line.get("candidate") or "").strip()
+                if not cid:
+                    continue
+                row = merged.setdefault(cid, {c: "" for c in (*VERDICT_COLUMNS, "notes")})
+                for column in VERDICT_COLUMNS:
+                    value = (line.get(column) or "").strip()
+                    if not value:
+                        continue
+                    if row[column] and _verdict(row[column]) != _verdict(value):
+                        raise ValueError(f"{cid}: {column} is {row[column]!r} in one sheet and "
+                                         f"{value!r} in {sheet}")
+                    row[column] = value
+                note = (line.get("notes") or "").strip()
+                if note and note not in row["notes"]:
+                    row["notes"] = f"{row['notes']} | {note}" if row["notes"] else note
+    return merged
+
+
+def score_sheet(sheet: Path | list[Path], key: Path, *,
+                attacker_proxies: list[str] | None = None) -> dict[str, Any]:
     key_data = json.loads(key.read_text(encoding="utf-8"))
     finals: dict[str, str] = {}
     pairs: list[tuple[str, str]] = []
     disputed: list[str] = []
     pending: list[str] = []
-    with sheet.open(encoding="utf-8") as fh:
-        for line in csv.DictReader(fh):
-            cid = line["candidate"]
-            a, b = _verdict(line.get("reviewer_a", "")), _verdict(line.get("reviewer_b", ""))
-            final = _verdict(line.get("final", ""))
-            if a and b:
-                pairs.append((a, b))
-            if final:
-                finals[cid] = final
-            elif a and b and a == b:
-                finals[cid] = a
-            elif a and b:
-                disputed.append(cid)
-            else:
-                pending.append(cid)
+    rows = merge_sheets(sheet if isinstance(sheet, list) else [sheet])
+    for cid in key_data["candidates"]:
+        line = rows.get(cid, {})
+        a, b = _verdict(line.get("reviewer_a", "")), _verdict(line.get("reviewer_b", ""))
+        final = _verdict(line.get("final", ""))
+        if a and b:
+            pairs.append((a, b))
+        if final:
+            finals[cid] = final
+        elif a and b and a == b:
+            finals[cid] = a
+        elif a and b:
+            disputed.append(cid)
+        else:
+            pending.append(cid)
 
     candidates: dict[str, dict[str, Any]] = key_data["candidates"]
     reporters: dict[str, set[str]] = defaultdict(set)      # group -> candidate ids

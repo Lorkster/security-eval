@@ -115,8 +115,13 @@ def cmd_adjudicate_export(args: argparse.Namespace) -> int:
 
     sheet, key = Path(args.sheet), Path(args.key)
     n = export([Path(r) for r in args.run_dirs], sheet, key, seed=args.seed)
-    print(f"{n} candidate(s) -> {sheet} (blind: no source on it)")
+    page = sheet.parent / "review.html"
+    print(f"{n} candidate(s). Reviewers open {page} in a browser: instructions, the code, "
+          "and a download of their verdicts.")
+    print(f"sheet -> {sheet} (blind; the record `import` reads)")
     print(f"key -> {key}: keep it away from the reviewers until both have finished")
+    print(f"then: security-eval adjudicate import --sheet {sheet.stem}-reviewer_a.csv "
+          f"--sheet {sheet.stem}-reviewer_b.csv --key {key}  (the files the page downloads)")
     return 0
 
 
@@ -126,9 +131,14 @@ def cmd_adjudicate_import(args: argparse.Namespace) -> int:
     proxies = list(args.proxy)
     if args.matrix:
         proxies += Matrix.load(args.matrix).attacker_proxies
-    result = score_sheet(Path(args.sheet), Path(args.key), attacker_proxies=proxies)
+    sheets = [Path(s) for s in args.sheet] or [Path("adjudication/sheet.csv")]
+    try:
+        result = score_sheet(sheets, Path(args.key), attacker_proxies=proxies)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
     markdown = render(result)
-    out = Path(args.sheet).with_suffix(".md")
+    out = Path(args.key).with_name("results.md")
     out.write_text(markdown, encoding="utf-8")
     out.with_suffix(".json").write_text(json.dumps(result, indent=2), encoding="utf-8")
     print(markdown)
@@ -403,7 +413,9 @@ def build_parser() -> argparse.ArgumentParser:
     q.add_argument("--seed", type=int, default=0, help="shuffle seed for the sheet's order")
     q.set_defaults(func=cmd_adjudicate_export)
     q = adj.add_parser("import", help="score the reviewers' verdicts")
-    q.add_argument("--sheet", default="adjudication/sheet.csv")
+    q.add_argument("--sheet", action="append", default=[],
+                   help="a sheet with verdicts; repeat for one per reviewer, as the review "
+                        "page downloads them (default: adjudication/sheet.csv)")
     q.add_argument("--key", default="adjudication/key.json")
     q.add_argument("--proxy", action="append", default=[],
                    help="a model route standing in for an attacker; repeatable")

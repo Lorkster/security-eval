@@ -138,16 +138,39 @@ Each cell's raw output is in `runs/local/cells/.../findings.json`.
 security-eval adjudicate export runs/local --sheet runs/local/adjudication/sheet.csv --key runs/local/adjudication/key.json
 ```
 
-The sheet pools every condition's findings and the scanner's, merged by place
-and shuffled, with nothing saying who reported what. Mark each one `tp`, `fp`
-or `unsure` in the `reviewer_a` column, then:
+This pools every condition's findings and the scanner's, merged by place and
+shuffled, with nothing saying who reported what. It writes three files:
+
+- **`review.html`**: open it in a browser. It works offline, needs nothing
+  installed, and is where you read and judge. Choose *Reviewer A*, then for
+  each candidate read what was reported and the code (flagged lines marked),
+  and pick a verdict.
+- **`sheet.csv`**: the record `import` reads, one short row per candidate.
+- **`key.json`**: who reported what. Don't open it until you've judged
+  everything.
+
+What the verdicts mean (the page shows this too):
+
+| Verdict | Meaning |
+| --- | --- |
+| `tp` | A real vulnerability in this code. You can point to the line, the untrusted input that reaches it, and what an attacker would gain. Ideally you could write a unit test that fails because of it. Never write an exploit. |
+| `fp` | Not a vulnerability here: the input is not attacker-controlled, it is already validated, or the code is safe as used (MD5 for a cache key, say). A real bug that is not a security issue is also `fp`; say so in the notes. |
+| `unsure` | You cannot decide from the code with reasonable effort, for example because it depends on how the code is deployed. Say in the notes what would settle it. |
+
+Judge whether the issue is real, not whether the report is well written. Right
+place but wrong CWE is still `tp` if the issue described is real; note the
+right CWE.
+
+Your answers are kept in the browser as you go. When done, press **Download my
+verdicts**, which saves `sheet-reviewer_a.csv` to your downloads folder, then:
 
 ```bash
-security-eval adjudicate import --sheet runs/local/adjudication/sheet.csv --key runs/local/adjudication/key.json
+security-eval adjudicate import --sheet ~/Downloads/sheet-reviewer_a.csv --key runs/local/adjudication/key.json
 ```
 
 One reviewer is enough for a trial. The study itself needs two, blind
-(`docs/beyond-known-issues.md`), and kappa needs both columns filled.
+(`docs/beyond-known-issues.md`): each downloads their own file, and `import`
+takes both (`--sheet` twice), which is what kappa needs.
 
 ## 9. From trial to budget
 

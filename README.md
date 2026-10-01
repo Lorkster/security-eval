@@ -94,8 +94,9 @@ them. See [`docs/beyond-known-issues.md`](docs/beyond-known-issues.md).
 ```bash
 security-eval import-fix REPO --vulnerable SHA --fixed SHA --published DATE --cwe CWE-79 \
     --dest benchmarks/ts-001                        # RQ5: disclosed after the cutoff
-security-eval adjudicate export runs/real           # RQ6/RQ7: blind sheet for two reviewers
-security-eval adjudicate import --matrix configs/matrix.real.json
+security-eval adjudicate export runs/real           # RQ6/RQ7: blind review page for two reviewers
+security-eval adjudicate import --sheet sheet-reviewer_a.csv --sheet sheet-reviewer_b.csv \
+    --matrix configs/matrix.real.json
 ```
 
 - **Time-split targets** export the vulnerable version without history and take
@@ -103,7 +104,8 @@ security-eval adjudicate import --matrix configs/matrix.real.json
   model's training cutoff (`configs/models.json`), an id that names the
   advisory, or a harness config that could reach the network.
 - **Real code** (`"open": true`) has no key. Its findings, with the scanners',
-  are pooled, merged by place, and judged blind by two reviewers.
+  are pooled, merged by place, and judged blind by two reviewers on
+  `review.html`, a page that opens offline and explains each verdict.
   `adjudicate import` gives kappa, precision, findings beyond the scanners,
   relative recall and attacker-proxy coverage, and scores triage against the
   verdicts.
