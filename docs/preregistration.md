@@ -55,6 +55,9 @@ Which one is **primary** for each hypothesis: ___
 - Attacker proxies: ___
 - Adjudication: reviewers (two, named), how disagreements are resolved, maximum
   candidates (random sample if over), and what evidence a `tp` needs: ___
+- Fix verification: targets with a `verify` section, their images (by id, from
+  `verify.json`), any `wrong_reasons` beyond the defaults, and how many verified
+  proposals a reviewer reads by hand: ___
 
 ## Exclusion rules
 

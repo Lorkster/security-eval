@@ -7,6 +7,8 @@
 | `matrix.fake.json` | the whole pipeline on the fake runner. Run with `--fake`. Costs nothing, and is where every change is tried first |
 | `matrix.pilot.json` | stage 2: `notes-api`, both conditions, one repeat on the workhorse model at an explicit effort |
 | `matrix.example.json` | the shape of a measurement matrix. Add targets as their manifests are written |
+| `matrix.fix.json` | RQ8: fixes and regression tests for `notes-api`'s flaws, batched; check them with `security-eval verify runs/fix` |
+| `models.json` | training cutoffs for the time-split contamination check. **Empty on purpose**: fill in each from the provider's official model page |
 
 `tokens_per_run` holds **assumptions** until the pilot has run. Replace them
 with the pilot's measured medians, which `security-eval report runs/pilot`
@@ -32,9 +34,10 @@ whose lens ran on a different model would be mislabelled.
 | --- | --- |
 | `prompts` | prompt names from `prompts.json` to run, each as its own cells (default `["plain"]`) |
 | `prompts_file` | another frozen prompts file |
-| `batch` | `true` to send eligible cells (baseline and triage on the `anthropic` route) through the Batches API at half price |
+| `batch` | `true` to send eligible cells (baseline, triage and fix on the `anthropic` route) through the Batches API at half price |
 | `scanner` | the scan the `triage` condition judges (default `bandit`); each target needs it under `"scans"` |
 | `triage_prompt` | the prompt the `triage` condition uses (default `triage`); the `prompts` dimension does not apply to triage |
+| `fix_prompt` | the prompt the `fix` condition uses (default `fix`); each target needs a complete `verify` section |
 | `attacker_proxies` | model routes standing in for an unregulated attacker (legal open-weight models, run on the same defensive task); adjudication reports coverage of what they find |
 | `models_file` | training cutoffs for the time-split check (default `configs/models.json`, which must be filled in) |
 | `efforts` | effort levels (`low` … `max`) to run, each as its own cells; only models that take one (current Claude models via `anthropic` or `bedrock`) are affected. Set it explicitly: Opus 5.5 and Sonnet 5.5 have different defaults |

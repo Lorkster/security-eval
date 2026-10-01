@@ -155,5 +155,14 @@
   ],
   "scans": {
     "bandit": "scans/bandit.sarif"
+  },
+  "verify": {
+    "image": "security-eval/notes-api:1",
+    "dockerfile": "verify/Dockerfile",
+    "overlay": "verify/overlay",
+    "test_dir": "tests",
+    "test_command": "python -m pytest -q -p no:cacheprovider {test} --junitxml={junit}",
+    "suite_command": "python -m pytest -q -p no:cacheprovider tests --junitxml={junit}",
+    "timeout": 120
   }
 }

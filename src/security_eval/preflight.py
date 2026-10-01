@@ -82,6 +82,8 @@ def run_checks(matrix: Matrix, prices: PriceTable, *, fake: bool = False,
     if matrix.batch:
         out.extend(_batching(matrix))
     out.extend(_beyond_known(matrix, targets))
+    if "fix" in matrix.conditions:
+        out.extend(_fixes(targets, sandbox=not fake))
 
     for effort in matrix.efforts:
         if effort and effort not in EFFORT_LEVELS:
@@ -161,6 +163,41 @@ def _beyond_known(matrix: Matrix, targets: list[Target]) -> list[Check]:
         elif allowed:
             out.append(Check("warn", "the harness config allows command execution; agents could "
                                      "reach the network"))
+    return out
+
+
+def _fixes(targets: list[Target], *, sandbox: bool) -> list[Check]:
+    """RQ8: every target can have its fixes verified, or proposals would be paid for in vain.
+
+    The sandbox itself is needed only by `verify`, later, so its absence is a
+    warning here: proposals can be collected first and verified once it exists.
+    """
+    from .sandbox import find_engine, image_id
+
+    out: list[Check] = []
+    for target in targets:
+        if target.open or not target.vulnerabilities:
+            out.append(Check("fail", f"fix: {target.id} has no known vulnerability to fix"))
+        elif target.verify is None:
+            out.append(Check("fail", f"fix: {target.id} has no verify section, so its fixes "
+                                     "could not be checked"))
+        elif target.verify.problems():
+            out.append(Check("fail", f"fix: {target.id}: " + "; ".join(target.verify.problems())))
+        else:
+            out.append(Check("ok", f"fix: {target.id} runs its tests in {target.verify.image}"))
+    if not sandbox:
+        return out
+    engine = find_engine()
+    if engine is None:
+        out.append(Check("warn", "fix: no container engine (docker or podman); proposals can be "
+                                 "collected, but `security-eval verify` needs one"))
+        return out
+    for target in targets:
+        if target.verify is not None and target.verify.image and \
+                image_id(engine, target.verify.image) is None:
+            out.append(Check("warn", f"fix: image {target.verify.image} is not built: "
+                                     f"security-eval sandbox build {target.manifest_path}, then "
+                                     "security-eval sandbox check"))
     return out
 
 

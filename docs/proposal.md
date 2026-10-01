@@ -28,7 +28,7 @@ than forking it.
 | **RQ5** | Do models find real flaws disclosed after their training cutoff? | recall and precision against the fix commit, with the contamination controls of `beyond-known-issues.md` |
 | **RQ6** | What do models find in real code that the company's own scanners miss? | blind two-reviewer adjudication: precision, verified findings no scanner reported, relative recall, Cohen's kappa |
 | **RQ7** | Of what an unregulated model finds, how much do the regulated ones also find? | attacker-proxy coverage, from the same adjudication |
-| **RQ8** | Do the proposed fixes work? | regression test fails before the fix and passes after, without breaking the suite, in a sandbox |
+| **RQ8** | Do the proposed fixes work? | the share of flaws whose proposed fix is verified in a sandbox: its regression test fails before the fix for a real reason, passes after, and the suite loses nothing; on time-split targets, also the real fix's own tests |
 
 **Known issues are calibration, not the result.** Tools like Snyk already find
 known patterns, and the company already runs them. RQ1–RQ3 on seeded benchmarks

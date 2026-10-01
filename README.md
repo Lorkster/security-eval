@@ -1,6 +1,6 @@
 # security-eval
 
-Measure how well language models find and triage known vulnerabilities when
+Measure how well language models find, triage and fix vulnerabilities when
 they run unattended — on their own, and supervised by
 [supervisor-harness](https://github.com/Lorkster/supervisor-harness). Every
 finding is scored against ground truth, and every dollar is recorded.
@@ -103,6 +103,22 @@ security-eval adjudicate import --matrix configs/matrix.real.json
   nowhere for Ollama). A manifest's `allowed_providers` holds the owner's
   approval. Preflight and the runner both refuse anything else.
 
+### Fix verification (RQ8)
+
+```bash
+security-eval sandbox build benchmarks/notes-api/manifest.json   # needs docker or podman
+security-eval sandbox check benchmarks/notes-api/manifest.json
+security-eval run configs/matrix.fix.json
+security-eval verify runs/fix
+```
+
+The `fix` condition asks for edits and a new regression test for each known
+flaw. `verify` runs them in a container with no network. The test must fail on
+the vulnerable code, for a real reason and not because it calls something the
+fix adds. It must pass with the fix, and the project's suite must lose nothing.
+On time-split targets, the real fix's own tests are run against the proposal
+too. Target code and model-written tests only ever run inside the container.
+
 ## Batching (half price)
 
 `"batch": true` in a matrix (or `run --batch`) sends eligible cells through the
@@ -146,7 +162,8 @@ docs/                proposal, models and budget
 configs/             price table (dated), matrices, frozen prompts
 benchmarks/          targets and their answer keys (manifest.json)
   toy-webapp/        five seeded vulnerabilities, five decoys; for plumbing only
-  notes-api/         six flaws across five files, incl. cross-file and authorisation
+  notes-api/         six flaws across five files, incl. cross-file and authorisation;
+                     verify/ holds its sandbox and test suite, never sent to a model
 src/security_eval/
   finding.py         the finding format: CWE, file:line, severity, triage verdict
   manifest.py        benchmark targets, validated against their code
@@ -158,6 +175,8 @@ src/security_eval/
   preflight.py       everything checkable before a token is paid for
   batch.py           the Message Batches API: eligibility, requests, the in-flight record
   scanners.py        run scanners, keep their SARIF, label findings by the answer key
+  sandbox.py         the container fix verification runs in; JUnit reports
+  fixes.py           RQ8: apply a proposal, check it stage by stage
   timesplit.py       time-split targets from a real fix commit
   adjudication.py    blind pooling, review sheets, kappa and the open-world metrics
   report.py          the ledger, aggregated into the study's numbers
@@ -167,6 +186,7 @@ src/security_eval/
     harness.py       one supervised harness run, isolated per cell, read back
                      through the harness's published CLI
     triage.py        RQ3: a model's verdict on each scanner finding
+    fix.py           RQ8: a fix and a regression test for each known flaw
   cli.py
 tests/
 ```
