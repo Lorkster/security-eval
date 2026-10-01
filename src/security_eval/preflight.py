@@ -22,9 +22,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from .batch import supports_batch
 from .budget import PriceTable
 from .manifest import ManifestError, load_target
-from .matrix import Matrix, estimate
+from .matrix import BATCHABLE, Matrix, estimate
 from .runners.base import EFFORT_LEVELS, EFFORT_PROVIDERS, load_prompts, prompt_hash
 
 LOCAL_PROVIDERS = frozenset({"fake", "ollama"})
@@ -61,11 +62,23 @@ def run_checks(matrix: Matrix, prices: PriceTable, *, fake: bool = False,
     except (OSError, json.JSONDecodeError) as exc:
         out.append(Check("fail", f"prompts file {matrix.prompts_file}: {exc}"))
         prompts = {}
-    for name in matrix.prompts:
+    for name in sorted({p for c in matrix.conditions for p in matrix.prompts_for(c)}):
         if name in prompts:
             out.append(Check("ok", f"prompt {name!r} sha {prompt_hash(prompts[name])}"))
         elif prompts:
             out.append(Check("fail", f"prompt {name!r} is not in {matrix.prompts_file}"))
+
+    if "triage" in matrix.conditions:
+        for target in targets:
+            if matrix.scanner in target.scans:
+                out.append(Check("ok", f"target {target.id}: {matrix.scanner} scan present"))
+            else:
+                out.append(Check("fail", f"target {target.id} has no {matrix.scanner} scan for "
+                                         f"triage: security-eval scan {matrix.scanner} "
+                                         f"{target.manifest_path}"))
+
+    if matrix.batch:
+        out.extend(_batching(matrix))
 
     for effort in matrix.efforts:
         if effort and effort not in EFFORT_LEVELS:
@@ -95,6 +108,32 @@ def run_checks(matrix: Matrix, prices: PriceTable, *, fake: bool = False,
 
     if not fake:
         out.extend(_environment(matrix, supervisor))
+    return out
+
+
+def _batching(matrix: Matrix) -> list[Check]:
+    """Which cells the Batches API will take, and which will run live at full price."""
+    out: list[Check] = []
+    one_shot = [c for c in matrix.conditions if c in BATCHABLE]
+    if not one_shot:
+        return [Check("warn", "batch is on, but no condition can be batched (the harness "
+                              "condition always runs live)")]
+    eligible = [m for m in matrix.models if supports_batch(m)]
+    live = [m for m in matrix.models if not supports_batch(m)]
+    if eligible:
+        out.append(Check("ok", f"batched at half price: {', '.join(one_shot)} on "
+                               f"{', '.join(eligible)}"))
+        try:
+            import anthropic  # noqa: F401
+        except ImportError:
+            out.append(Check("fail", "batching needs the Anthropic SDK: "
+                                     "pip install -e \".[batch]\""))
+    if live:
+        out.append(Check("warn", f"no Batches API for {', '.join(live)}: those cells run live "
+                                 "at full price (only Anthropic's own API offers batches)"))
+    if "harness" in matrix.conditions:
+        out.append(Check("ok", "the harness condition runs live: a supervised run is a "
+                               "conversation, not a batch of independent requests"))
     return out
 
 

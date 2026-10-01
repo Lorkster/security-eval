@@ -144,5 +144,8 @@ def test_every_prompt_keeps_the_defensive_boundary() -> None:
 
     prompts = load_prompts()
     assert prompts["plain"] == TASK, "the default in code and the frozen file must agree"
+    from security_eval.runners.triage import TRIAGE_TASK
+
+    assert prompts["triage"] == TRIAGE_TASK, "the same for triage"
     for name, text in prompts.items():
         assert "do not write exploits" in text.lower(), name

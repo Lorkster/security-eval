@@ -65,6 +65,9 @@ class SecurityFinding:
     # conditions apply the same rule, and the scorer can be told to accept only
     # stated locations, so the leniency is visible rather than hidden.
     location_source: str = ""
+    # Triage only: the model's reasoning for its verdict, kept apart from the
+    # scanner's own message in `detail`.
+    triage_reason: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         data = asdict(self)
@@ -88,6 +91,7 @@ class SecurityFinding:
             source=str(data.get("source", "")),
             id=str(data.get("id", "")),
             location_source=str(data.get("location_source", "")),
+            triage_reason=str(data.get("triage_reason", "")),
         )
 
 

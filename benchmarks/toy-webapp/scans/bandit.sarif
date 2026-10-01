@@ -1,0 +1,428 @@
+{
+  "runs": [
+    {
+      "tool": {
+        "driver": {
+          "name": "Bandit",
+          "rules": [
+            {
+              "id": "B105",
+              "name": "hardcoded_password_string",
+              "helpUri": "https://bandit.readthedocs.io/en/1.9.4/plugins/b105_hardcoded_password_string.html"
+            },
+            {
+              "id": "B608",
+              "name": "hardcoded_sql_expressions",
+              "helpUri": "https://bandit.readthedocs.io/en/1.9.4/plugins/b608_hardcoded_sql_expressions.html"
+            },
+            {
+              "id": "B403",
+              "name": "blacklist",
+              "helpUri": "https://bandit.readthedocs.io/en/1.9.4/blacklists/blacklist_imports.html#b403-import-pickle"
+            },
+            {
+              "id": "B301",
+              "name": "blacklist",
+              "helpUri": "https://bandit.readthedocs.io/en/1.9.4/blacklists/blacklist_calls.html#b301-pickle"
+            },
+            {
+              "id": "B404",
+              "name": "blacklist",
+              "helpUri": "https://bandit.readthedocs.io/en/1.9.4/blacklists/blacklist_imports.html#b404-import-subprocess"
+            },
+            {
+              "id": "B602",
+              "name": "subprocess_popen_with_shell_equals_true",
+              "helpUri": "https://bandit.readthedocs.io/en/1.9.4/plugins/b602_subprocess_popen_with_shell_equals_true.html"
+            },
+            {
+              "id": "B607",
+              "name": "start_process_with_partial_path",
+              "helpUri": "https://bandit.readthedocs.io/en/1.9.4/plugins/b607_start_process_with_partial_path.html"
+            },
+            {
+              "id": "B603",
+              "name": "subprocess_without_shell_equals_true",
+              "helpUri": "https://bandit.readthedocs.io/en/1.9.4/plugins/b603_subprocess_without_shell_equals_true.html"
+            }
+          ]
+        }
+      },
+      "invocations": [
+        {
+          "executionSuccessful": true,
+          "endTimeUtc": "2026-10-01T14:15:00Z"
+        }
+      ],
+      "properties": {
+        "metrics": {
+          "_totals": {
+            "loc": 48,
+            "nosec": 0,
+            "skipped_tests": 0,
+            "SEVERITY.UNDEFINED": 0,
+            "CONFIDENCE.UNDEFINED": 0,
+            "SEVERITY.LOW": 5,
+            "CONFIDENCE.LOW": 1,
+            "SEVERITY.MEDIUM": 2,
+            "CONFIDENCE.MEDIUM": 1,
+            "SEVERITY.HIGH": 1,
+            "CONFIDENCE.HIGH": 6
+          },
+          ".\\app\\__init__.py": {
+            "loc": 1,
+            "nosec": 0,
+            "skipped_tests": 0,
+            "SEVERITY.UNDEFINED": 0,
+            "SEVERITY.LOW": 0,
+            "SEVERITY.MEDIUM": 0,
+            "SEVERITY.HIGH": 0,
+            "CONFIDENCE.UNDEFINED": 0,
+            "CONFIDENCE.LOW": 0,
+            "CONFIDENCE.MEDIUM": 0,
+            "CONFIDENCE.HIGH": 0
+          },
+          ".\\app\\config.py": {
+            "loc": 7,
+            "nosec": 0,
+            "skipped_tests": 0,
+            "SEVERITY.UNDEFINED": 0,
+            "SEVERITY.LOW": 1,
+            "SEVERITY.MEDIUM": 0,
+            "SEVERITY.HIGH": 0,
+            "CONFIDENCE.UNDEFINED": 0,
+            "CONFIDENCE.LOW": 0,
+            "CONFIDENCE.MEDIUM": 1,
+            "CONFIDENCE.HIGH": 0
+          },
+          ".\\app\\db.py": {
+            "loc": 10,
+            "nosec": 0,
+            "skipped_tests": 0,
+            "SEVERITY.UNDEFINED": 0,
+            "SEVERITY.LOW": 0,
+            "SEVERITY.MEDIUM": 1,
+            "SEVERITY.HIGH": 0,
+            "CONFIDENCE.UNDEFINED": 0,
+            "CONFIDENCE.LOW": 1,
+            "CONFIDENCE.MEDIUM": 0,
+            "CONFIDENCE.HIGH": 0
+          },
+          ".\\app\\files.py": {
+            "loc": 14,
+            "nosec": 0,
+            "skipped_tests": 0,
+            "SEVERITY.UNDEFINED": 0,
+            "SEVERITY.LOW": 0,
+            "SEVERITY.MEDIUM": 0,
+            "SEVERITY.HIGH": 0,
+            "CONFIDENCE.UNDEFINED": 0,
+            "CONFIDENCE.LOW": 0,
+            "CONFIDENCE.MEDIUM": 0,
+            "CONFIDENCE.HIGH": 0
+          },
+          ".\\app\\session.py": {
+            "loc": 8,
+            "nosec": 0,
+            "skipped_tests": 0,
+            "SEVERITY.UNDEFINED": 0,
+            "SEVERITY.LOW": 1,
+            "SEVERITY.MEDIUM": 1,
+            "SEVERITY.HIGH": 0,
+            "CONFIDENCE.UNDEFINED": 0,
+            "CONFIDENCE.LOW": 0,
+            "CONFIDENCE.MEDIUM": 0,
+            "CONFIDENCE.HIGH": 2
+          },
+          ".\\app\\tools.py": {
+            "loc": 8,
+            "nosec": 0,
+            "skipped_tests": 0,
+            "SEVERITY.UNDEFINED": 0,
+            "SEVERITY.LOW": 3,
+            "SEVERITY.MEDIUM": 0,
+            "SEVERITY.HIGH": 1,
+            "CONFIDENCE.UNDEFINED": 0,
+            "CONFIDENCE.LOW": 0,
+            "CONFIDENCE.MEDIUM": 0,
+            "CONFIDENCE.HIGH": 4
+          }
+        }
+      },
+      "results": [
+        {
+          "message": {
+            "text": "Possible hardcoded password: 'Tr0ub4dor-admin-2019'"
+          },
+          "level": "note",
+          "locations": [
+            {
+              "physicalLocation": {
+                "region": {
+                  "snippet": {
+                    "text": "ADMIN_PASSWORD = \"Tr0ub4dor-admin-2019\"\n"
+                  },
+                  "startLine": 9
+                },
+                "artifactLocation": {
+                  "uri": "app/config.py"
+                },
+                "contextRegion": {
+                  "snippet": {
+                    "text": "ADMIN_USER = \"admin\"\nADMIN_PASSWORD = \"Tr0ub4dor-admin-2019\"\n\n"
+                  },
+                  "endLine": 10,
+                  "startLine": 8
+                }
+              }
+            }
+          ],
+          "properties": {
+            "issue_confidence": "MEDIUM",
+            "issue_severity": "LOW"
+          },
+          "ruleId": "B105",
+          "ruleIndex": 0
+        },
+        {
+          "message": {
+            "text": "Possible SQL injection vector through string-based query construction."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "region": {
+                  "snippet": {
+                    "text": "    query = f\"SELECT id, username, email FROM users WHERE username = '{username}'\"\n"
+                  },
+                  "startLine": 11
+                },
+                "artifactLocation": {
+                  "uri": "app/db.py"
+                },
+                "contextRegion": {
+                  "snippet": {
+                    "text": "def find_user(conn: sqlite3.Connection, username: str) -> tuple | None:\n    query = f\"SELECT id, username, email FROM users WHERE username = '{username}'\"\n    return conn.execute(query).fetchone()\n"
+                  },
+                  "endLine": 12,
+                  "startLine": 10
+                }
+              }
+            }
+          ],
+          "properties": {
+            "issue_confidence": "LOW",
+            "issue_severity": "MEDIUM"
+          },
+          "ruleId": "B608",
+          "ruleIndex": 1
+        },
+        {
+          "message": {
+            "text": "Consider possible security implications associated with pickle module."
+          },
+          "level": "note",
+          "locations": [
+            {
+              "physicalLocation": {
+                "region": {
+                  "snippet": {
+                    "text": "import pickle\n"
+                  },
+                  "startLine": 5
+                },
+                "artifactLocation": {
+                  "uri": "app/session.py"
+                },
+                "contextRegion": {
+                  "snippet": {
+                    "text": "import json\nimport pickle\n\n"
+                  },
+                  "endLine": 6,
+                  "startLine": 4
+                }
+              }
+            }
+          ],
+          "properties": {
+            "issue_confidence": "HIGH",
+            "issue_severity": "LOW"
+          },
+          "ruleId": "B403",
+          "ruleIndex": 2
+        },
+        {
+          "message": {
+            "text": "Pickle and modules that wrap it can be unsafe when used to deserialize untrusted data, possible security issue."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "region": {
+                  "snippet": {
+                    "text": "    return pickle.loads(base64.b64decode(cookie))\n"
+                  },
+                  "startLine": 9
+                },
+                "artifactLocation": {
+                  "uri": "app/session.py"
+                },
+                "contextRegion": {
+                  "snippet": {
+                    "text": "def load_preferences(cookie: str) -> dict:\n    return pickle.loads(base64.b64decode(cookie))\n\n"
+                  },
+                  "endLine": 10,
+                  "startLine": 8
+                }
+              }
+            }
+          ],
+          "properties": {
+            "issue_confidence": "HIGH",
+            "issue_severity": "MEDIUM"
+          },
+          "ruleId": "B301",
+          "ruleIndex": 3
+        },
+        {
+          "message": {
+            "text": "Consider possible security implications associated with the subprocess module."
+          },
+          "level": "note",
+          "locations": [
+            {
+              "physicalLocation": {
+                "region": {
+                  "snippet": {
+                    "text": "import subprocess\n"
+                  },
+                  "startLine": 3
+                },
+                "artifactLocation": {
+                  "uri": "app/tools.py"
+                },
+                "contextRegion": {
+                  "snippet": {
+                    "text": "\nimport subprocess\n\n"
+                  },
+                  "endLine": 4,
+                  "startLine": 2
+                }
+              }
+            }
+          ],
+          "properties": {
+            "issue_confidence": "HIGH",
+            "issue_severity": "LOW"
+          },
+          "ruleId": "B404",
+          "ruleIndex": 4
+        },
+        {
+          "message": {
+            "text": "subprocess call with shell=True identified, security issue."
+          },
+          "level": "error",
+          "locations": [
+            {
+              "physicalLocation": {
+                "region": {
+                  "snippet": {
+                    "text": "    result = subprocess.run(f\"ping -c 1 {host}\", shell=True, capture_output=True, text=True)\n"
+                  },
+                  "startLine": 7
+                },
+                "artifactLocation": {
+                  "uri": "app/tools.py"
+                },
+                "contextRegion": {
+                  "snippet": {
+                    "text": "def ping(host: str) -> str:\n    result = subprocess.run(f\"ping -c 1 {host}\", shell=True, capture_output=True, text=True)\n    return result.stdout\n"
+                  },
+                  "endLine": 8,
+                  "startLine": 6
+                }
+              }
+            }
+          ],
+          "properties": {
+            "issue_confidence": "HIGH",
+            "issue_severity": "HIGH"
+          },
+          "ruleId": "B602",
+          "ruleIndex": 5
+        },
+        {
+          "message": {
+            "text": "Starting a process with a partial executable path"
+          },
+          "level": "note",
+          "locations": [
+            {
+              "physicalLocation": {
+                "region": {
+                  "snippet": {
+                    "text": "    result = subprocess.run([\"traceroute\", \"--\", host], capture_output=True, text=True)\n"
+                  },
+                  "startLine": 12
+                },
+                "artifactLocation": {
+                  "uri": "app/tools.py"
+                },
+                "contextRegion": {
+                  "snippet": {
+                    "text": "def traceroute(host: str) -> str:\n    result = subprocess.run([\"traceroute\", \"--\", host], capture_output=True, text=True)\n    return result.stdout\n"
+                  },
+                  "endLine": 13,
+                  "startLine": 11
+                }
+              }
+            }
+          ],
+          "properties": {
+            "issue_confidence": "HIGH",
+            "issue_severity": "LOW"
+          },
+          "ruleId": "B607",
+          "ruleIndex": 6
+        },
+        {
+          "message": {
+            "text": "subprocess call - check for execution of untrusted input."
+          },
+          "level": "note",
+          "locations": [
+            {
+              "physicalLocation": {
+                "region": {
+                  "snippet": {
+                    "text": "    result = subprocess.run([\"traceroute\", \"--\", host], capture_output=True, text=True)\n"
+                  },
+                  "startLine": 12
+                },
+                "artifactLocation": {
+                  "uri": "app/tools.py"
+                },
+                "contextRegion": {
+                  "snippet": {
+                    "text": "def traceroute(host: str) -> str:\n    result = subprocess.run([\"traceroute\", \"--\", host], capture_output=True, text=True)\n    return result.stdout\n"
+                  },
+                  "endLine": 13,
+                  "startLine": 11
+                }
+              }
+            }
+          ],
+          "properties": {
+            "issue_confidence": "HIGH",
+            "issue_severity": "LOW"
+          },
+          "ruleId": "B603",
+          "ruleIndex": 7
+        }
+      ]
+    }
+  ],
+  "version": "2.1.0",
+  "$schema": "https://schemastore.azurewebsites.net/schemas/json/sarif-2.1.0-rtm.4.json"
+}

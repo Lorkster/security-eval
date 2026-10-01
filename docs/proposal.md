@@ -70,6 +70,8 @@ What does not exist anywhere yet, and is this repository:
 | a scorer | deterministic matching of findings to ground truth; no LLM judge | done |
 | a matrix driver | targets × conditions × models × repeats, resumable from a ledger | done |
 | a budget guard | refuses to start a run the remaining budget cannot cover | done |
+| triage runner (RQ3) | each scanner finding judged by a model; labelled by the answer key; scanners scored beside the models | done; Bandit scans of both benchmarks included |
+| batching | half-price Message Batches for baseline and triage, Anthropic's own API only; never resubmits, budget counts what is in flight | done |
 | preflight checks | everything checkable before a token is paid for: manifests, prompts, prices, budget, tooling, provider credentials | done |
 | a report | the ledger aggregated into the research questions' numbers, re-scored from saved findings | done |
 

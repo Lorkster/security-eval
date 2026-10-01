@@ -21,6 +21,9 @@ dependencies = []
 # can be reproduced against. Move the pin deliberately, and record it in the
 # pre-registration: a harness change mid-study changes one of the conditions.
 harness = ["supervisor-harness @ git+https://github.com/Lorkster/supervisor-harness@c8d0a47c5a6683ffa467463d9a639a79cc086cc0"]
+# The Message Batches API (half price, Anthropic's own API only). Optional:
+# nothing imports the SDK unless a matrix sets "batch": true.
+batch = ["anthropic>=0.40"]
 dev = ["pytest>=8.0", "ruff>=0.16.5,<0.17", "mypy>=1.11,<2"]
 
 [project.scripts]

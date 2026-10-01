@@ -64,3 +64,37 @@ class FakeRunner:
             usage=Usage(*self.tokens),
             detail="fake runner: answered from the manifest",
         )
+
+
+class FakeTriageRunner:
+    """Triage for free: judges each scanner finding from the answer key, mostly right.
+
+    Correct with probability ``accuracy``, deterministically per cell, and
+    ``needs_info`` otherwise -- so the triage scoring, report and batch plumbing
+    can be exercised without a model.
+    """
+
+    condition = "fake"
+    kind = "triage"
+
+    def __init__(self, tool: str = "bandit", accuracy: float = 0.8, seed: int = 0) -> None:
+        self.tool = tool
+        self.accuracy = accuracy
+        self.seed = seed
+
+    def run(self, target: Target, route: str, workdir: Path, task: str = TASK,
+            effort: str = "") -> RunResult:
+        from ..finding import Verdict
+        from ..scanners import ScanError, label, scanner_findings
+
+        try:
+            findings = scanner_findings(target, self.tool)
+        except ScanError as exc:
+            return RunResult(Outcome.ERROR, detail=str(exc))
+        rng = random.Random(f"{self.seed}:{target.id}:{route}:{workdir.name}")  # noqa: S311
+        for finding, real in zip(findings, label(findings, target), strict=True):
+            right = Verdict.TRUE_POSITIVE if real else Verdict.FALSE_POSITIVE
+            finding.triage = right if rng.random() < self.accuracy else Verdict.NEEDS_INFO
+        return RunResult(Outcome.OK, findings, Usage(20_000 * max(1, len(findings)), 500),
+                         detail="fake triage: answered from the manifest",
+                         extra={"tool": self.tool, "scanner_findings": len(findings)})

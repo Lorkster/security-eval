@@ -24,7 +24,7 @@ finding is scored against ground truth, and every dollar is recorded.
 ```bash
 python -m venv .venv
 .venv/Scripts/activate            # Windows; `source .venv/bin/activate` elsewhere
-pip install -e ".[dev,harness]"
+pip install -e ".[dev,harness,batch]"
 
 security-eval validate benchmarks/*/manifest.json
 security-eval run configs/matrix.fake.json --fake
@@ -59,6 +59,40 @@ tested the way a cell will see it. Every `run` is resumable: re-running the
 same matrix skips finished cells and retries only errors. A refusal or invalid
 output is a *result* and is not retried. See `docs/models-and-budget.md` for
 why.
+
+## Triage of scanner output (RQ3)
+
+The company already runs scanners. RQ3 asks whether a model can sift their
+output: dismiss the noise, keep the real issues.
+
+```bash
+security-eval scan bandit benchmarks/notes-api/manifest.json    # or semgrep, snyk, --command
+```
+
+The scan's SARIF is stored beside the benchmark and named in its manifest, so it
+is frozen material like the code. A matrix with the `triage` condition then asks
+the model about each scanner finding on its own, with the whole repository in
+view. Each finding is labelled real or not by the answer key, using the scorer's
+own rule. The report gives **noise dismissed** (not-real findings judged false
+positive), **real kept** (real ones judged true positive) and accuracy. It also
+scores each scanner on the same answer key as the models, so the company's own
+tools are part of the comparison.
+
+## Batching (half price)
+
+`"batch": true` in a matrix (or `run --batch`) sends eligible cells through the
+Message Batches API at half price. **Only Anthropic's own API offers it.**
+Bedrock, Vertex, OpenRouter and Ollama do not, and their cells run live at full
+price; `check` says which is which. The harness condition always runs live,
+because a supervised run is a conversation, not a batch of independent requests.
+
+A batch usually finishes within an hour and always within 24. `run` submits it
+and returns; running it again collects the results (`--wait` stays until they
+are back). The batch id is written to `batches.json` as soon as it is accepted,
+so a crash or a re-run never pays for the same requests twice. While a batch is
+out, its projected cost counts against the budget. A batched request is the same
+request the harness would send live, and a test holds the two equal. In triage,
+the repository text is prompt-cached across a target's findings.
 
 ## Results
 
@@ -97,12 +131,15 @@ src/security_eval/
   ledger.py          append-only record of every cell; resumption
   matrix.py          cells, priority order, estimate, run
   preflight.py       everything checkable before a token is paid for
+  batch.py           the Message Batches API: eligibility, requests, the in-flight record
+  scanners.py        run scanners, keep their SARIF, label findings by the answer key
   report.py          the ledger, aggregated into the study's numbers
   runners/
     fake.py          zero-cost runner answering from the manifest
     baseline.py      one model, one prompt, via the harness's provider layer
     harness.py       one supervised harness run, isolated per cell, read back
                      through the harness's published CLI
+    triage.py        RQ3: a model's verdict on each scanner finding
   cli.py
 tests/
 ```
