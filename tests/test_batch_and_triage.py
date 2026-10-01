@@ -460,3 +460,22 @@ def test_results_are_put_back_in_request_order(tmp_path: Path, prices: PriceTabl
 
     (order,) = seen
     assert order == [item.custom_id for item in client.submitted[0]]
+
+
+def test_a_scanner_installed_beside_python_is_found_without_activation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import os
+    import sys
+
+    from security_eval.scanners import find_tool
+
+    name = "fakescan.cmd" if os.name == "nt" else "fakescan"
+    tool = tmp_path / name
+    tool.write_text("", encoding="utf-8")
+    tool.chmod(0o755)
+    monkeypatch.setenv("PATH", "")
+    assert find_tool("fakescan") is None
+    monkeypatch.setattr(sys, "executable", str(tmp_path / "python"))
+    found = find_tool("fakescan")
+    assert found is not None and Path(found).parent == tmp_path

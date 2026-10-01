@@ -157,6 +157,35 @@ def cmd_import_fix(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_import_code(args: argparse.Namespace) -> int:
+    """Real code you own, as a target for a trial run: local models only, by default."""
+    from .runners.baseline import BaselineRunner, pack
+    from .snapshot import import_code
+    from .timesplit import TimeSplitError
+
+    allowed = None if not args.allow else ([] if args.allow == ["any"] else list(args.allow))
+    try:
+        manifest = import_code(Path(args.repo), list(args.paths), Path(args.dest),
+                               commit=args.commit, target_id=args.id,
+                               allowed_providers=allowed)
+    except TimeSplitError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    target = load_target(manifest)
+    chars = len(pack(target.root)[0])
+    limit = BaselineRunner().max_chars
+    print(f"{target.id}: {sum(1 for p in target.root.rglob('*') if p.is_file())} file(s) "
+          f"at {target.source['commit'][:12]} -> {target.root}")
+    print(f"size: {chars:,} characters, roughly {chars // 4:,} tokens per request "
+          f"(the baseline's limit is {limit:,} characters; check your model's context window)")
+    if chars > limit:
+        print("too large for the baseline: import fewer files", file=sys.stderr)
+    print("may go to: " + (", ".join(target.allowed_providers) or "any provider"))
+    print(f"next: security-eval scan bandit {manifest}; then a matrix naming it "
+          "(docs/local-trial-run.md)")
+    return 0 if chars <= limit else 1
+
+
 def _container(engine: str) -> str | None:
     from .sandbox import find_engine
 
@@ -395,6 +424,20 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--dest", required=True, help="where to write the benchmark, e.g. "
                                                  "benchmarks/ts-001")
     p.set_defaults(func=cmd_import_fix)
+
+    p = sub.add_parser("import-code",
+                       help="files of a repository you own, as a target for a trial run")
+    p.add_argument("repo", help="a local git repository")
+    p.add_argument("paths", nargs="+", help="files or directories, relative to the repository")
+    p.add_argument("--dest", required=True,
+                   help="where to write the target; under runs/ keeps it out of git, e.g. "
+                        "runs/_targets/mycode")
+    p.add_argument("--commit", default="HEAD", help="the commit to take the files from")
+    p.add_argument("--id", default="", help="target id (default: the --dest folder's name)")
+    p.add_argument("--allow", action="append", default=[], metavar="PROVIDER",
+                   help="a provider the code may go to; repeatable (default: ollama only; "
+                        "'any' for no restriction)")
+    p.set_defaults(func=cmd_import_code)
 
     p = sub.add_parser("verify", help="RQ8: check a run's fix proposals in a sandbox")
     p.add_argument("run_dir", help="the matrix's output directory, e.g. runs/fix")

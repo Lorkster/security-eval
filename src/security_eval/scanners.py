@@ -23,6 +23,7 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 from .finding import SecurityFinding
@@ -53,10 +54,11 @@ def run_scan(target: Target, tool: str, out: Path, command: list[str] | None = N
     template = command or PRESETS.get(tool)
     if not template:
         raise ScanError(f"no preset for {tool!r}; pass a command containing {{out}}")
-    if shutil.which(template[0]) is None:
-        raise ScanError(f"`{template[0]}` is not on PATH")
+    executable = find_tool(template[0])
+    if executable is None:
+        raise ScanError(f"`{template[0]}` is not on PATH, nor installed beside this Python")
     out.parent.mkdir(parents=True, exist_ok=True)
-    argv = [part.replace("{out}", str(out.resolve())) for part in template]
+    argv = [executable, *(part.replace("{out}", str(out.resolve())) for part in template[1:])]
     # Scanners exit non-zero when they find something; only a missing file is failure.
     proc = subprocess.run(argv, cwd=target.root, capture_output=True, text=True,  # noqa: S603
                           check=False)
@@ -64,6 +66,20 @@ def run_scan(target: Target, tool: str, out: Path, command: list[str] | None = N
         raise ScanError(f"{tool} wrote no SARIF (exit {proc.returncode}): {proc.stderr[-300:]}")
     json.loads(out.read_text(encoding="utf-8"))   # fail now, not on the first triage cell
     return out
+
+
+def find_tool(name: str) -> str | None:
+    """``name`` on PATH, or else beside the running Python.
+
+    ``pip install bandit`` into the project's virtual environment puts it next
+    to the interpreter, which is not on PATH unless the environment is
+    activated. Running ``.venv/Scripts/security-eval`` directly should still
+    find it.
+    """
+    found = shutil.which(name)
+    if found:
+        return found
+    return shutil.which(name, path=str(Path(sys.executable).parent))
 
 
 def scanner_findings(target: Target, tool: str) -> list[SecurityFinding]:

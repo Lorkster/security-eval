@@ -43,6 +43,8 @@ class CellResult:
     triage: TriageScore | None = None
     #: Fix cells: the sandbox's verdicts, or None if not verified yet.
     fixes: list[dict[str, Any]] | None = None
+    #: Open targets: what was reported, kept for adjudication rather than scored.
+    reported: list[SecurityFinding] | None = None
 
     @property
     def is_triage(self) -> bool:
@@ -51,6 +53,10 @@ class CellResult:
     @property
     def is_fix(self) -> bool:
         return self.record.extra.get("kind") == "fix"
+
+    @property
+    def is_open(self) -> bool:
+        return bool(self.record.extra.get("open"))
 
 
 @dataclass
@@ -74,6 +80,15 @@ def spread(values: list[float]) -> dict[str, float | None]:
         return {"median": None, "min": None, "max": None, "n": 0}
     return {"median": round(statistics.median(values), 4), "min": round(min(values), 4),
             "max": round(max(values), 4), "n": len(values)}
+
+
+def _fmt_n(s: dict[str, float | None]) -> str:
+    """A spread of counts or seconds: the median alone when every value agrees."""
+    if not s["n"]:
+        return "—"
+    if s["min"] == s["max"]:
+        return f"{s['median']:g}"
+    return f"{s['median']:g} [{s['min']:g} to {s['max']:g}]"
 
 
 def _fmt(s: dict[str, float | None]) -> str:
@@ -104,7 +119,10 @@ def load_cells(out_dir: Path, *, tolerance: int = DEFAULT_TOLERANCE,
         findings = [SecurityFinding.from_dict(f)
                     for f in json.loads(findings_file.read_text(encoding="utf-8"))]
         if record.extra.get("open"):
-            continue    # adjudicated, not scored: see `security-eval adjudicate`
+            # Adjudicated, not scored (`security-eval adjudicate`); described
+            # in the report, so a trial run on real code still shows its figures.
+            cells.append(CellResult(record, None, reported=findings))
+            continue
         if record.extra.get("kind") == "triage":
             target = targets[manifest]
             cells.append(CellResult(record, None, triage=score_triage(
@@ -130,7 +148,7 @@ def _fix_cell(out_dir: Path, record: Record) -> CellResult:
 def summarise(cells: list[CellResult]) -> dict[str, Any]:
     groups: dict[GroupKey, Group] = {}
     for c in cells:
-        if c.is_triage or c.is_fix:
+        if c.is_triage or c.is_fix or c.is_open:
             continue
         r = c.record
         key = (r.condition, r.model, r.prompt or "plain", r.effort or "default")
@@ -170,7 +188,8 @@ def summarise(cells: list[CellResult]) -> dict[str, Any]:
         rows.append(row)
 
     return {"groups": rows, "by_cwe": _by_cwe(groups), "tokens_per_run": _tokens(cells),
-            "triage": _triage(cells), "scanners": _scanners(cells), "fixes": _fixes(cells)}
+            "triage": _triage(cells), "scanners": _scanners(cells), "fixes": _fixes(cells),
+            "open": _open(cells)}
 
 
 def _triage(cells: list[CellResult]) -> list[dict[str, Any]]:
@@ -183,7 +202,7 @@ def _triage(cells: list[CellResult]) -> list[dict[str, Any]]:
     """
     grouped: dict[tuple[str, str, str, str], list[CellResult]] = defaultdict(list)
     for c in cells:
-        if c.is_triage:
+        if c.is_triage and not c.is_open:
             r = c.record
             grouped[(r.model, r.prompt or "triage", r.effort or "default",
                      str(r.extra.get("tool", "")))].append(c)
@@ -253,6 +272,55 @@ def _fixes(cells: list[CellResult]) -> list[dict[str, Any]]:
     return rows
 
 
+def _open(cells: list[CellResult]) -> list[dict[str, Any]]:
+    """Real code without an answer key: what each condition reported, before anyone judges it.
+
+    No precision or recall -- those need the reviewers' verdicts. What can be
+    said is how many places were reported (repeats of one place counted once),
+    how long it took and what it used, and for triage, how the verdicts fell.
+    """
+    grouped: dict[GroupKey, list[CellResult]] = defaultdict(list)
+    for c in cells:
+        if c.is_open:
+            r = c.record
+            grouped[(r.condition, r.model, r.prompt or "plain", r.effort or "default")].append(c)
+    rows = []
+    for key in sorted(grouped):
+        group = grouped[key]
+        outcomes: dict[str, int] = defaultdict(int)
+        for c in group:
+            outcomes[c.record.outcome.value] += 1
+        reported = [c.reported or [] for c in group]
+        verdicts: dict[str, int] = defaultdict(int)
+        for findings in reported:
+            for f in findings:
+                if f.triage is not None:
+                    verdicts[f.triage.value] += 1
+        rows.append({
+            "condition": key[0], "model": key[1], "prompt": key[2], "effort": key[3],
+            "cells": len(group), "outcomes": dict(outcomes),
+            "findings": spread([float(len(f)) for f in reported]),
+            "places": spread([float(_places(f)) for f in reported]),
+            "unanchored": sum(1 for f in reported for x in f if x.location is None),
+            "verdicts": dict(sorted(verdicts.items())),
+            "seconds": spread([c.record.seconds for c in group]),
+            "stop_reasons": sorted({s for c in group
+                                    for s in c.record.extra.get("stop_reasons") or []}),
+        })
+    return rows
+
+
+def _places(findings: list[SecurityFinding], tolerance: int = DEFAULT_TOLERANCE) -> int:
+    """Distinct places reported: findings on the same lines of one file count once."""
+    from .scoring import overlaps
+
+    seen: list[Any] = []
+    for f in findings:
+        if f.location is not None and not any(overlaps(f.location, s, tolerance) for s in seen):
+            seen.append(f.location)
+    return len(seen)
+
+
 def _rate(scored: list[TriageScore], label_key: str, verdict: str) -> list[float]:
     """Per cell: the share of findings with this label that drew this verdict."""
     out = []
@@ -280,6 +348,8 @@ def _scanners(cells: list[CellResult]) -> list[dict[str, Any]]:
             continue
         seen.add(manifest)
         target = load_target(manifest)
+        if target.open:
+            continue    # no answer key to score a scanner on
         for tool in sorted(target.scans):
             try:
                 found = scanner_findings(target, tool)
@@ -338,32 +408,33 @@ def render_markdown(summary: dict[str, Any], *, title: str, stated_only: bool) -
     if stated_only:
         lines += ["*Stated locations only: a location recovered from evidence counts as none.*",
                   ""]
-    lines += [
-        "Median [min to max] over repeats. **ok** = completed normally; **completed** also "
-        "includes runs in which the harness stopped an agent.", "",
-        "| condition | model | prompt | effort | cells | refused | harness-stopped | "
-        "recall (ok) | recall (completed) | strict recall (ok) | precision (ok) | "
-        "$ / true positive | cost |",
-        "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
-    ]
-    for g in summary["groups"]:
-        cpt = g["ok"]["cost_per_true_positive"]
-        lines.append(
-            f"| {g['condition']} | {g['model']} | {g['prompt']} | {g['effort']} | {g['cells']} | "
-            f"{g['refusal_rate']:.0%} | {g['harness_stopped_rate']:.0%} | "
-            f"{_fmt(g['ok']['recall_loose'])} | {_fmt(g['completed']['recall_loose'])} | "
-            f"{_fmt(g['ok']['recall_strict'])} | {_fmt(g['ok']['precision_loose'])} | "
-            f"{'—' if cpt is None else f'${cpt:.2f}'} | ${g['cost_usd']:.2f} |"
-        )
-    lines += ["", "## Where precision went (completed runs)", "",
-              "| condition | model | prompt | effort | decoy hits | duplicates | unanchored | "
-              "recovered locations |",
-              "| --- | --- | --- | --- | --- | --- | --- | --- |"]
-    for g in summary["groups"]:
-        c = g["completed"]
-        lines.append(f"| {g['condition']} | {g['model']} | {g['prompt']} | {g['effort']} | "
-                     f"{c['decoy_hits']} | {c['duplicates']} | {c['unanchored']} | "
-                     f"{c['recovered_locations']} |")
+    if summary["groups"]:
+        lines += [
+            "Median [min to max] over repeats. **ok** = completed normally; **completed** also "
+            "includes runs in which the harness stopped an agent.", "",
+            "| condition | model | prompt | effort | cells | refused | harness-stopped | "
+            "recall (ok) | recall (completed) | strict recall (ok) | precision (ok) | "
+            "$ / true positive | cost |",
+            "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+        ]
+        for g in summary["groups"]:
+            cpt = g["ok"]["cost_per_true_positive"]
+            lines.append(
+                f"| {g['condition']} | {g['model']} | {g['prompt']} | {g['effort']} | "
+                f"{g['cells']} | {g['refusal_rate']:.0%} | {g['harness_stopped_rate']:.0%} | "
+                f"{_fmt(g['ok']['recall_loose'])} | {_fmt(g['completed']['recall_loose'])} | "
+                f"{_fmt(g['ok']['recall_strict'])} | {_fmt(g['ok']['precision_loose'])} | "
+                f"{'—' if cpt is None else f'${cpt:.2f}'} | ${g['cost_usd']:.2f} |"
+            )
+        lines += ["", "## Where precision went (completed runs)", "",
+                  "| condition | model | prompt | effort | decoy hits | duplicates | unanchored | "
+                  "recovered locations |",
+                  "| --- | --- | --- | --- | --- | --- | --- | --- |"]
+        for g in summary["groups"]:
+            c = g["completed"]
+            lines.append(f"| {g['condition']} | {g['model']} | {g['prompt']} | {g['effort']} | "
+                         f"{c['decoy_hits']} | {c['duplicates']} | {c['unanchored']} | "
+                         f"{c['recovered_locations']} |")
     if summary["by_cwe"]:
         lines += ["", "## Recall by CWE (completed runs)", "",
                   "| condition | model | prompt | effort | CWE | found / total |",
@@ -396,6 +467,25 @@ def render_markdown(summary: dict[str, Any], *, title: str, stated_only: bool) -
                 f"{r['cells']} | {r['refusal_rate']:.0%} | {_fmt(r['accuracy'])} | "
                 f"{_fmt(r['noise_dismissed'])} | {_fmt(r['real_kept'])} | "
                 f"{_fmt(r['needs_info'])} | {'—' if cpf is None else f'${cpf:.3f}'} |")
+    if summary.get("open"):
+        lines += ["", "## Real code, awaiting adjudication", "",
+                  "Not scored: real code has no answer key. *Places* counts findings on the "
+                  "same lines of a file once; more findings than places means repeats. Next: "
+                  "`security-eval adjudicate export` for the blind review sheet.", "",
+                  "| condition | model | prompt | effort | cells | outcomes | findings | places | "
+                  "unanchored | triage verdicts | seconds |",
+                  "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |"]
+        for r in summary["open"]:
+            outcomes = ", ".join(f"{k} {v}" for k, v in sorted(r["outcomes"].items()))
+            verdicts = ", ".join(f"{k} {v}" for k, v in r["verdicts"].items()) or "—"
+            lines.append(
+                f"| {r['condition']} | {r['model']} | {r['prompt']} | {r['effort']} | "
+                f"{r['cells']} | {outcomes} | {_fmt_n(r['findings'])} | {_fmt_n(r['places'])} | "
+                f"{r['unanchored']} | {verdicts} | {_fmt_n(r['seconds'])} |")
+        stops = [(r["condition"], s) for r in summary["open"] for s in r["stop_reasons"]]
+        if stops:
+            lines += ["", "Why the harness stopped agents:", ""]
+            lines += [f"- {condition}: {reason}" for condition, reason in stops]
     if summary.get("fixes"):
         lines += ["", "## Fix verification (RQ8)", "",
                   "**Verified**: fix and regression test passed every stage in the sandbox "
