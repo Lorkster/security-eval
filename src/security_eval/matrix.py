@@ -89,6 +89,8 @@ class Matrix:
     #: The prompt the triage condition uses (from the prompts file). Triage has
     #: its own task, so the `prompts` dimension does not apply to it.
     triage_prompt: str = "triage"
+    #: The prompt the fix condition (RQ8) uses. Like triage, it has its own task.
+    fix_prompt: str = "fix"
     #: Models standing in for an unregulated attacker: legal open-weight models,
     #: run on the same defensive task. Adjudication reports how much of what
     #: they find the other models also find.
@@ -116,13 +118,15 @@ class Matrix:
             batch=bool(data.get("batch", False)),
             scanner=str(data.get("scanner", "bandit")),
             triage_prompt=str(data.get("triage_prompt", "triage")),
+            fix_prompt=str(data.get("fix_prompt", "fix")),
             attacker_proxies=[str(m) for m in data.get("attacker_proxies", [])],
             models_file=(_resolve(base, data["models_file"]) if "models_file" in data
                          else DEFAULT_MODELS),
         )
 
     def prompts_for(self, condition: str) -> list[str]:
-        return [self.triage_prompt] if condition == "triage" else self.prompts
+        own = {"triage": self.triage_prompt, "fix": self.fix_prompt}
+        return [own[condition]] if condition in own else self.prompts
 
     def batched(self, cell: Cell) -> bool:
         """Whether this cell goes through the Batches API rather than live."""
@@ -131,7 +135,7 @@ class Matrix:
 
 #: Conditions that can be batched: one-shot requests. The harness condition is a
 #: conversation -- each turn depends on the last -- so it always runs live.
-BATCHABLE = frozenset({"baseline", "triage"})
+BATCHABLE = frozenset({"baseline", "triage", "fix"})
 
 
 def _resolve(base: Path, raw: str) -> Path:
@@ -173,7 +177,8 @@ def cells(matrix: Matrix, targets: Mapping[Path, Target]) -> list[Cell]:
     # repeat of the first model and prompt covers every target and condition
     # before anything else starts.
     model_rank = {m: i for i, m in enumerate(matrix.models)}
-    prompt_rank = {p: i for i, p in enumerate([*matrix.prompts, matrix.triage_prompt])}
+    prompt_rank = {p: i for i, p in enumerate([*matrix.prompts, matrix.triage_prompt,
+                                               matrix.fix_prompt])}
     effort_rank = {e: i for i, e in enumerate(matrix.efforts)}
     target_rank = {targets[m].id: i for i, m in enumerate(matrix.targets)}
     cond_rank = {c: i for i, c in enumerate(matrix.conditions)}
@@ -356,17 +361,26 @@ class _Run:
         findings_path = workdir / "findings.json"
         findings_path.write_text(
             json.dumps([f.to_dict() for f in result.findings], indent=2), encoding="utf-8")
+        for name, data in result.artifacts.items():
+            (workdir / f"{name}.json").write_text(json.dumps(data, indent=2), encoding="utf-8")
         target = self.targets[cell.manifest]
         extra: dict[str, Any] = {**result.extra, "manifest": str(cell.manifest)}
-        if target.open:
+        kind = getattr(runner, "kind", "detect")
+        if kind == "fix":
+            # Nothing to score yet: the proposals are checked in the sandbox by
+            # `security-eval verify`, which costs nothing and can be re-run.
+            extra["kind"] = "fix"
+            n = len(result.artifacts.get("proposals", []))
+            summary = f"{n} proposal(s) to verify"
+        elif target.open:
             # No answer key: findings (or triage verdicts) are kept for blind
             # adjudication, and nothing is scored against an empty key, which
             # would call every finding a false positive.
             extra["open"] = True
-            if getattr(runner, "kind", "detect") == "triage":
+            if kind == "triage":
                 extra["kind"] = "triage"
             summary = f"{len(result.findings)} item(s) kept for adjudication"
-        elif getattr(runner, "kind", "detect") == "triage":
+        elif kind == "triage":
             from .scanners import label
 
             triaged = score_triage([f.triage for f in result.findings],

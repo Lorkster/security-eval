@@ -34,12 +34,24 @@ import zipfile
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
-#: Changes a fix makes that are not where the flaw was: its new tests, its notes.
-_NOT_THE_FLAW = re.compile(
-    r"(^|/)(tests?|testing|spec|specs|__tests__|docs?)/|(^|/)test_[^/]*$|_test\.[a-z]+$|"
-    r"\.(md|rst|txt|adoc)$|(^|/)(changelog|changes|news|history|security)[^/]*$",
+#: Test code: what a fix adds to prove itself, not where the flaw was. Also
+#: what a proposed fix may not edit (`fixes.protected`).
+TEST_PATH = re.compile(
+    r"(^|/)(tests?|testing|spec|specs|__tests__)/|(^|/)test_[^/]*$|_test\.[a-z]+$|"
+    r"(^|/)conftest\.py$",
     re.IGNORECASE,
 )
+_DOC_PATH = re.compile(
+    r"(^|/)docs?/|\.(md|rst|txt|adoc)$|(^|/)(changelog|changes|news|history|security)[^/]*$",
+    re.IGNORECASE,
+)
+
+
+def _not_the_flaw(path: str) -> bool:
+    """Changes a fix makes that are not where the flaw was: its new tests, its notes."""
+    return bool(TEST_PATH.search(path) or _DOC_PATH.search(path))
+
+
 _HUNK = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+\d+(?:,\d+)? @@")
 _ADVISORY_ID = re.compile(r"cve|ghsa|osv|pysec|rustsec", re.IGNORECASE)
 
@@ -77,7 +89,7 @@ def fix_hunks(repo: Path, vulnerable: str, fixed: str, subdir: str = "") -> list
             path = None if old == "/dev/null" else old.removeprefix("a/")
             continue
         match = _HUNK.match(line)
-        if not match or path is None or _NOT_THE_FLAW.search(path):
+        if not match or path is None or _not_the_flaw(path):
             continue
         start = int(match.group(1))
         count = int(match.group(2)) if match.group(2) is not None else 1
@@ -115,6 +127,7 @@ def import_fix(repo: Path, vulnerable: str, fixed: str, dest: Path, *, published
     suffixes = [PurePosixPath(h.path).suffix for h in hunks]
     language = max(set(suffixes), key=suffixes.count, default="")
     first, *rest = hunks
+    verify = _export_reference(repo, vulnerable, fixed, subdir, dest / "verify")
     manifest = {
         "id": target_id,
         "root": "src",
@@ -129,11 +142,53 @@ def import_fix(repo: Path, vulnerable: str, fixed: str, dest: Path, *, published
             "description": "derived from the lines the fix commit changed",
         }],
         "decoys": [],
+        # For RQ8. The group fills in the image and the commands for this
+        # project; `security-eval sandbox check` says what is still missing.
+        "verify": verify,
     }
     dest.mkdir(parents=True, exist_ok=True)
     (dest / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n",
                                         encoding="utf-8")
     return dest / "manifest.json"
+
+
+def _export_reference(repo: Path, vulnerable: str, fixed: str, subdir: str,
+                      dest: Path) -> dict[str, object]:
+    """The fix as files, for checking proposed fixes against it (RQ8).
+
+    ``fixed/`` holds each code file the fix changed or added, as the fix left
+    it; ``fixed_tests/`` the test files. Whole files rather than a patch, so
+    applying them is a copy and cannot fail on line endings or context. Neither
+    is under ``src/``, so no model sees them.
+    """
+    args = ["diff", "--name-status", "--no-renames", vulnerable, fixed]
+    if subdir:
+        args += ["--", subdir]
+    verify: dict[str, object] = {"image": "", "test_dir": "tests", "test_command": "",
+                                 "suite_command": "", "timeout": 300}
+    deleted: list[str] = []
+    wrote = {"fixed": False, "fixed_tests": False}
+    for line in _git(repo, args).splitlines():
+        status, _, path = line.partition("\t")
+        rel = _relative(path, subdir)
+        if not rel or rel.startswith("..") or _DOC_PATH.search(rel):
+            continue
+        if status.startswith("D"):
+            if not TEST_PATH.search(rel):
+                deleted.append(rel)
+            continue
+        folder = "fixed_tests" if TEST_PATH.search(rel) else "fixed"
+        out = dest / folder / rel
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_bytes(_git_bytes(repo, ["show", f"{fixed}:{path}"]))
+        wrote[folder] = True
+    if wrote["fixed"]:
+        verify["reference_fix"] = "verify/fixed"
+    if wrote["fixed_tests"]:
+        verify["reference_tests"] = "verify/fixed_tests"
+    if deleted:
+        verify["reference_deleted"] = deleted
+    return verify
 
 
 def _export(repo: Path, commit: str, subdir: str, dest: Path) -> None:
@@ -160,6 +215,15 @@ def _export(repo: Path, commit: str, subdir: str, dest: Path) -> None:
 def _relative(path: str, subdir: str) -> str:
     prefix = subdir.strip("/") + "/" if subdir else ""
     return path[len(prefix):] if prefix and path.startswith(prefix) else path
+
+
+def _git_bytes(repo: Path, args: list[str]) -> bytes:
+    """Raw output: a file's bytes exactly as committed, line endings included."""
+    proc = subprocess.run(["git", "-C", str(repo), *args], capture_output=True,  # noqa: S603, S607
+                          check=False)
+    if proc.returncode != 0:
+        raise TimeSplitError(f"git {args[0]} failed: {proc.stderr.decode(errors='replace')[-300:]}")
+    return proc.stdout
 
 
 def _git(repo: Path, args: list[str]) -> str:

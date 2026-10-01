@@ -41,10 +41,16 @@ class CellResult:
     score: Score | None
     recovered: int = 0
     triage: TriageScore | None = None
+    #: Fix cells: the sandbox's verdicts, or None if not verified yet.
+    fixes: list[dict[str, Any]] | None = None
 
     @property
     def is_triage(self) -> bool:
         return self.record.extra.get("kind") == "triage"
+
+    @property
+    def is_fix(self) -> bool:
+        return self.record.extra.get("kind") == "fix"
 
 
 @dataclass
@@ -86,6 +92,9 @@ def load_cells(out_dir: Path, *, tolerance: int = DEFAULT_TOLERANCE,
     cells = []
     for record in latest.values():
         manifest = record.extra.get("manifest")
+        if record.extra.get("kind") == "fix":
+            cells.append(_fix_cell(out_dir, record))
+            continue
         findings_file = out_dir / record.findings_path if record.findings_path else None
         if not manifest or findings_file is None or not findings_file.is_file():
             cells.append(CellResult(record, None))
@@ -109,10 +118,19 @@ def load_cells(out_dir: Path, *, tolerance: int = DEFAULT_TOLERANCE,
     return cells
 
 
+def _fix_cell(out_dir: Path, record: Record) -> CellResult:
+    verified = (out_dir / record.findings_path).parent / "verify.json" \
+        if record.findings_path else None
+    if verified is None or not verified.is_file():
+        return CellResult(record, None)
+    results = json.loads(verified.read_text(encoding="utf-8")).get("results", [])
+    return CellResult(record, None, fixes=list(results))
+
+
 def summarise(cells: list[CellResult]) -> dict[str, Any]:
     groups: dict[GroupKey, Group] = {}
     for c in cells:
-        if c.is_triage:
+        if c.is_triage or c.is_fix:
             continue
         r = c.record
         key = (r.condition, r.model, r.prompt or "plain", r.effort or "default")
@@ -152,7 +170,7 @@ def summarise(cells: list[CellResult]) -> dict[str, Any]:
         rows.append(row)
 
     return {"groups": rows, "by_cwe": _by_cwe(groups), "tokens_per_run": _tokens(cells),
-            "triage": _triage(cells), "scanners": _scanners(cells)}
+            "triage": _triage(cells), "scanners": _scanners(cells), "fixes": _fixes(cells)}
 
 
 def _triage(cells: list[CellResult]) -> list[dict[str, Any]]:
@@ -188,6 +206,49 @@ def _triage(cells: list[CellResult]) -> list[dict[str, Any]]:
             "findings_triaged": triaged,
             "cost_usd": round(cost, 4),
             "cost_per_finding": round(cost / triaged, 4) if triaged else None,
+        })
+    return rows
+
+
+def _fixes(cells: list[CellResult]) -> list[dict[str, Any]]:
+    """RQ8, per model, prompt and effort: how many proposed fixes held up in the sandbox.
+
+    **Verified** is the share of the flaws asked about -- refusals and unusable
+    answers included -- whose fix and test passed every stage, so a model that
+    declines half the work does not look better for it. The verdicts say where
+    the rest failed; *upstream* and *overfit* are the checks against the real
+    fix, where a target has one.
+    """
+    grouped: dict[tuple[str, str, str], list[CellResult]] = defaultdict(list)
+    for c in cells:
+        if c.is_fix:
+            r = c.record
+            grouped[(r.model, r.prompt or "fix", r.effort or "default")].append(c)
+    rows = []
+    for key in sorted(grouped):
+        group = grouped[key]
+        checked = [c for c in group if c.fixes is not None]
+        results = [f for c in checked for f in c.fixes or []]
+        verdicts: dict[str, int] = defaultdict(int)
+        upstream: dict[str, int] = defaultdict(int)
+        for f in results:
+            verdicts[str(f.get("verdict"))] += 1
+            if f.get("upstream"):
+                upstream[str(f["upstream"])] += 1
+        per_cell = [sum(f.get("verdict") == "verified" for f in c.fixes or []) / len(c.fixes)
+                    for c in checked if c.fixes]
+        verified = verdicts.get("verified", 0)
+        cost = sum(c.record.cost_usd for c in checked)
+        rows.append({
+            "model": key[0], "prompt": key[1], "effort": key[2], "cells": len(group),
+            "unverified_cells": len(group) - len(checked),
+            "flaws": len(results), "verified": verified,
+            "verified_rate": spread(per_cell),
+            "verdicts": dict(sorted(verdicts.items())),
+            "upstream": dict(sorted(upstream.items())),
+            "overfit": sum(f.get("overfit") is True for f in results),
+            "cost_usd": round(sum(c.record.cost_usd for c in group), 4),
+            "cost_per_verified_fix": round(cost / verified, 4) if verified else None,
         })
     return rows
 
@@ -335,6 +396,25 @@ def render_markdown(summary: dict[str, Any], *, title: str, stated_only: bool) -
                 f"{r['cells']} | {r['refusal_rate']:.0%} | {_fmt(r['accuracy'])} | "
                 f"{_fmt(r['noise_dismissed'])} | {_fmt(r['real_kept'])} | "
                 f"{_fmt(r['needs_info'])} | {'—' if cpf is None else f'${cpf:.3f}'} |")
+    if summary.get("fixes"):
+        lines += ["", "## Fix verification (RQ8)", "",
+                  "**Verified**: fix and regression test passed every stage in the sandbox "
+                  "(the test fails on the vulnerable code, passes with the fix, and the "
+                  "project's suite loses nothing), as a share of the flaws asked about. "
+                  "*Upstream*: the real fix's own tests, run on the proposed fix. *Overfit*: "
+                  "the model's test fails on the real fix.", "",
+                  "| model | prompt | effort | cells | not yet verified | verified | "
+                  "where the rest failed | upstream | overfit | $ / verified fix |",
+                  "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |"]
+        for r in summary["fixes"]:
+            failed = ", ".join(f"{k} {v}" for k, v in r["verdicts"].items() if k != "verified")
+            upstream = ", ".join(f"{k} {v}" for k, v in r["upstream"].items()) or "—"
+            cpf = r["cost_per_verified_fix"]
+            lines.append(
+                f"| {r['model']} | {r['prompt']} | {r['effort']} | {r['cells']} | "
+                f"{r['unverified_cells']} | {r['verified']} / {r['flaws']} "
+                f"({_fmt(r['verified_rate'])}) | {failed or '—'} | {upstream} | "
+                f"{r['overfit']} | {'—' if cpf is None else f'${cpf:.2f}'} |")
     if summary["tokens_per_run"]:
         lines += ["", "## Measured tokens per run (median, input incl. cache / output)", "",
                   "Put these in the matrix's `tokens_per_run` before estimating the next one:",

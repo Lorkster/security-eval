@@ -98,3 +98,24 @@ class FakeTriageRunner:
         return RunResult(Outcome.OK, findings, Usage(20_000 * max(1, len(findings)), 500),
                          detail="fake triage: answered from the manifest",
                          extra={"tool": self.tool, "scanner_findings": len(findings)})
+
+
+class FakeFixRunner:
+    """The fix condition for free: one empty proposal per known vulnerability.
+
+    No fake can write a real fix, so each proposal is marked as having none.
+    That exercises the ledger, the proposal files, `verify` and the report; the
+    sandbox itself is exercised by the tests, with proposals written by hand.
+    """
+
+    condition = "fake"
+    kind = "fix"
+
+    def run(self, target: Target, route: str, workdir: Path, task: str = TASK,
+            effort: str = "") -> RunResult:
+        proposals = [{"vulnerability": v.id, "invalid": "fake runner: no proposal"}
+                     for v in target.vulnerabilities]
+        return RunResult(Outcome.OK, [], Usage(30_000 * max(1, len(proposals)), 2_000),
+                         detail="fake fix: no proposals",
+                         extra={"vulnerabilities": len(proposals)},
+                         artifacts={"proposals": proposals})

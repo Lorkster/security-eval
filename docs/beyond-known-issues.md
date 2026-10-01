@@ -159,11 +159,94 @@ legal, openly licensed models; nothing obtained from anywhere it should not be.
 
 ## RQ8: fix verification
 
-Each finding's recommendation becomes a patch and a regression test. In a
-sandbox, the test must fail on the vulnerable code, pass with the patch, and
-the project's own suite must not get worse. That runs code from the target, so
-it is built separately with its own isolation (containers), in its own pull
-request, and comes after this one.
+Finding a flaw is half the job. The other half is a fix that works, and the
+company will ask whether a model's fixes can be trusted.
+
+```bash
+security-eval sandbox build benchmarks/notes-api/manifest.json   # once; the only step with network
+security-eval sandbox check benchmarks/notes-api/manifest.json   # the suite runs, before paying
+security-eval run configs/matrix.fix.json                        # proposals, batched
+security-eval verify runs/fix                                    # every proposal, in the sandbox
+security-eval report runs/fix
+```
+
+The `fix` condition gives the model a confirmed flaw: its location and CWE,
+not the answer key's description. RQ8 asks whether fixes work, not whether
+flaws are found, so detection is kept out of it. The model sees the repository
+and its existing tests, and is told how its test will be run. It answers with
+**edits** (exact text to replace) and **one new test file**. Edits, not a diff:
+a diff must reproduce line numbers and context exactly, and a good fix lost to
+a malformed hunk would be scored as one that does not work.
+
+Nothing runs while the model is being asked. `verify` checks the saved
+proposals afterwards, which costs nothing and can be repeated.
+
+### The stages
+
+Each proposal is checked in order, and stops at the first stage it fails:
+
+| Stage | Must hold | Otherwise |
+| --- | --- | --- |
+| the proposal applies | edits match exactly once; no test or test configuration is edited; the test is a new file under the target's test directory | `invalid_proposal` |
+| the test detects the flaw | on the vulnerable code it **fails**: an assertion that does not hold | `test_did_not_fail` if it passes; `test_broken` if it only errors or nothing ran; `test_wrong_reason` if it fails only by calling what the fix adds |
+| the fix fixes it | with the edits, the same test passes | `not_fixed` |
+| nothing else breaks | the project's suite, with the edits and without the new test, loses no test that passed before | `suite_regressed` |
+
+All four is **verified**. A refusal or an unusable answer is `no_proposal` and
+counts against the rate, so a model that declines half the work does not look
+better for it. A failure of the sandbox itself is `sandbox_error`, says
+nothing about the proposal, and is retried by the next `verify`.
+
+`test_wrong_reason` closes a loophole. A test that imports the helper the fix
+is about to add fails before the fix and passes after it, yet shows nothing
+about the flaw. Failures that are only `ImportError`, `AttributeError`,
+`NameError` or a call with the wrong arguments are therefore not detection.
+A target can set its own patterns in `verify.wrong_reasons`.
+
+### Against the real fix
+
+A time-split target also has the fix that actually shipped. `import-fix`
+saves it under `verify/fixed/`, and the tests it added under
+`verify/fixed_tests/`. Both are outside `src/`, so no model sees them. Two more
+checks are recorded beside each verdict:
+
+- **upstream**: do the project's own tests from the real fix pass on the
+  proposed fix? This is an oracle the model did not write. A fix can satisfy
+  its own narrow test and still fail here.
+- **overfit**: does the model's test fail on the real fix? If so, it tests the
+  model's fix rather than the flaw.
+
+Both are used only once the reference has been checked: its tests must fail on
+the vulnerable code and pass on the real fix. `sandbox check` reports this.
+
+### The sandbox
+
+Every run is a fresh container with:
+
+- no network;
+- a read-only root filesystem and a read-only copy of the tree;
+- no capabilities and no privilege escalation;
+- limits on memory, CPU, process count and time.
+
+Results come back as JUnit XML, the one format that tells a failed assertion
+from an error. Each target says how its tests run (`verify` in its manifest).
+`notes-api` is the example: a Dockerfile that installs pytest, and a functional
+test suite under `verify/overlay/`. The suite sits outside `src/`, so detection
+runs never read it.
+
+For a real project, the group writes the Dockerfile with the project's
+dependencies, then runs `sandbox check`. A time-split manifest arrives with
+`verify` started and the image and commands left blank.
+
+Limits to state in the write-up:
+
+- "The suite loses nothing" is only as strong as the suite.
+- A verified fix is not proof of a correct fix; *upstream* is the stronger
+  evidence where it exists.
+- The verifier trusts the test runner's report, and a proposal's code runs in
+  the same process. Reviewers should read a sample of verified proposals.
+- Regression tests check safe behaviour (unsafe input is rejected or
+  neutralised). They are unit tests, not exploits, and the prompt says so.
 
 ---
 

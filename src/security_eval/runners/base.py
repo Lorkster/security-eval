@@ -75,6 +75,9 @@ class RunResult:
     seconds: float = 0.0
     detail: str = ""
     extra: dict[str, Any] = field(default_factory=dict)
+    #: Saved beside the cell's findings as ``<name>.json``: what a condition
+    #: produces that is not findings, such as the fix condition's proposals.
+    artifacts: dict[str, Any] = field(default_factory=dict)
 
 
 class Runner(Protocol):

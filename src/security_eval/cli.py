@@ -17,7 +17,7 @@ from .preflight import render as render_checks
 from .preflight import run_checks
 from .report import load_cells, render_markdown, summarise, write_cells_csv
 from .runners.base import Runner
-from .runners.fake import FakeRunner, FakeTriageRunner
+from .runners.fake import FakeFixRunner, FakeRunner, FakeTriageRunner
 from .sarif import to_sarif
 from .scanners import ScanError, run_scan, scanner_findings
 from .scoring import score
@@ -27,13 +27,15 @@ def _runners(fake: bool, scanner: str = "bandit") -> dict[str, Runner]:
     if fake:
         # Every condition answered by a fake runner: the whole pipeline, for $0.
         return {"baseline": FakeRunner(), "harness": FakeRunner(recall=0.8),
-                "triage": FakeTriageRunner(scanner), "fake": FakeRunner()}
+                "triage": FakeTriageRunner(scanner), "fix": FakeFixRunner(),
+                "fake": FakeRunner()}
     from .runners.baseline import BaselineRunner
+    from .runners.fix import FixRunner
     from .runners.harness import HarnessRunner
     from .runners.triage import TriageRunner
 
     return {"baseline": BaselineRunner(), "harness": HarnessRunner(),
-            "triage": TriageRunner(scanner), "fake": FakeRunner()}
+            "triage": TriageRunner(scanner), "fix": FixRunner(), "fake": FakeRunner()}
 
 
 def cmd_validate(args: argparse.Namespace) -> int:
@@ -149,6 +151,96 @@ def cmd_import_fix(args: argparse.Namespace) -> int:
           f"{len(target.vulnerabilities[0].locations)} location(s) from the fix diff")
     print("next: fill the training cutoffs in configs/models.json, then "
           f"security-eval scan bandit {manifest}")
+    if target.verify is not None and target.verify.problems():
+        print("for fix verification (RQ8): set verify.image, test_command and suite_command "
+              f"in {manifest}, then security-eval sandbox check {manifest}")
+    return 0
+
+
+def _container(engine: str) -> str | None:
+    from .sandbox import find_engine
+
+    found = find_engine(engine)
+    if found is None:
+        print("error: no container engine found (docker or podman). Fix verification runs "
+              "target code and model-written tests, and only ever in a container.",
+              file=sys.stderr)
+    return found
+
+
+def cmd_verify(args: argparse.Namespace) -> int:
+    """Check every fix proposal in a run, in the sandbox."""
+    from .fixes import verify_run
+    from .manifest import VerifyConfig
+    from .sandbox import ContainerSandbox, image_id
+
+    run_dir = Path(args.run_dir)
+    if not (run_dir / "ledger.jsonl").is_file():
+        print(f"no ledger in {run_dir}", file=sys.stderr)
+        return 2
+    engine = _container(args.engine)
+    if engine is None:
+        return 2
+
+    def sandbox_for(config: VerifyConfig) -> ContainerSandbox:
+        return ContainerSandbox(engine, config.image, writable=config.writable)
+
+    def describe(config: VerifyConfig) -> dict[str, object]:
+        return {"engine": engine, "image": config.image,
+                "image_id": image_id(engine, config.image)}
+
+    n = verify_run(run_dir, sandbox_for, force=args.force, describe=describe)
+    print(f"\n{n} cell(s) verified; `security-eval report {run_dir}` includes them")
+    return 0
+
+
+def cmd_sandbox_build(args: argparse.Namespace) -> int:
+    from .sandbox import build_image
+
+    target = load_target(args.manifest)
+    if target.verify is None or not target.verify.image or target.verify.dockerfile is None:
+        print(f"error: {target.id} needs verify.image and verify.dockerfile", file=sys.stderr)
+        return 2
+    engine = _container(args.engine)
+    if engine is None:
+        return 2
+    assert target.manifest_path is not None  # noqa: S101 - set by load_target
+    return build_image(engine, target.verify.image, target.verify.dockerfile,
+                       target.manifest_path.parent)
+
+
+def cmd_sandbox_check(args: argparse.Namespace) -> int:
+    """Before paying for proposals: does the target's suite run in the sandbox?"""
+    import tempfile
+
+    from .fixes import prepare_target
+    from .sandbox import ContainerSandbox
+
+    target = load_target(args.manifest)
+    problems = target.verify.problems() if target.verify else ["no verify section"]
+    if problems:
+        print("FAIL  " + "\nFAIL  ".join(problems))
+        return 1
+    assert target.verify is not None  # noqa: S101 - checked above
+    engine = _container(args.engine)
+    if engine is None:
+        return 2
+    sandbox = ContainerSandbox(engine, target.verify.image, writable=target.verify.writable)
+    with tempfile.TemporaryDirectory(prefix="security-eval-check-") as tmp:
+        state = prepare_target(target, sandbox, Path(tmp))
+    if state.problem:
+        print(f"FAIL  {state.problem}")
+        return 1
+    assert state.suite is not None  # noqa: S101 - no problem means a report
+    counts = state.suite.counts()
+    print(f"ok    suite on the vulnerable code: {counts}")
+    if counts["failed"] or counts["error"]:
+        print("WARN  some of the suite fails before any fix; those tests cannot show a "
+              "regression")
+    if state.reference_tests:
+        level = "ok  " if state.reference_valid else "WARN"
+        print(f"{level}  {state.reference_detail}"
+              + ("" if state.reference_valid else "; upstream checks will be skipped"))
     return 0
 
 
@@ -303,6 +395,23 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--dest", required=True, help="where to write the benchmark, e.g. "
                                                  "benchmarks/ts-001")
     p.set_defaults(func=cmd_import_fix)
+
+    p = sub.add_parser("verify", help="RQ8: check a run's fix proposals in a sandbox")
+    p.add_argument("run_dir", help="the matrix's output directory, e.g. runs/fix")
+    p.add_argument("--engine", default="", help="docker or podman (default: whichever is found)")
+    p.add_argument("--force", action="store_true", help="verify cells verified already")
+    p.set_defaults(func=cmd_verify)
+
+    p = sub.add_parser("sandbox", help="the container a target's tests run in")
+    box = p.add_subparsers(dest="step", required=True)
+    q = box.add_parser("build", help="build the target's image from verify.dockerfile")
+    q.add_argument("manifest")
+    q.add_argument("--engine", default="")
+    q.set_defaults(func=cmd_sandbox_build)
+    q = box.add_parser("check", help="run the target's suite in the sandbox, and its reference")
+    q.add_argument("manifest")
+    q.add_argument("--engine", default="")
+    q.set_defaults(func=cmd_sandbox_check)
 
     p = sub.add_parser("report", help="aggregate a matrix's results into the study's numbers")
     p.add_argument("run_dir", help="the matrix's output directory, e.g. runs/pilot")
