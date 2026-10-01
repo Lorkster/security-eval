@@ -24,6 +24,7 @@ class Outcome(StrEnum):
     HARNESS_STOPPED = "harness_stopped"    # drift control stopped an agent (RQ4: harness)
     ERROR = "error"                        # provider, network, crash: retry later
     SKIPPED_BUDGET = "skipped_budget"      # the budget guard refused to start it
+    SKIPPED_POLICY = "skipped_policy"      # the target's data policy forbids this provider
 
     @property
     def final(self) -> bool:

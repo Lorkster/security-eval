@@ -94,6 +94,8 @@ def load_cells(out_dir: Path, *, tolerance: int = DEFAULT_TOLERANCE,
             targets[manifest] = load_target(manifest)
         findings = [SecurityFinding.from_dict(f)
                     for f in json.loads(findings_file.read_text(encoding="utf-8"))]
+        if record.extra.get("open"):
+            continue    # adjudicated, not scored: see `security-eval adjudicate`
         if record.extra.get("kind") == "triage":
             target = targets[manifest]
             cells.append(CellResult(record, None, triage=score_triage(

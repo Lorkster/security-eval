@@ -108,6 +108,50 @@ def cmd_scan(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_adjudicate_export(args: argparse.Namespace) -> int:
+    from .adjudication import export
+
+    sheet, key = Path(args.sheet), Path(args.key)
+    n = export([Path(r) for r in args.run_dirs], sheet, key, seed=args.seed)
+    print(f"{n} candidate(s) -> {sheet} (blind: no source on it)")
+    print(f"key -> {key}: keep it away from the reviewers until both have finished")
+    return 0
+
+
+def cmd_adjudicate_import(args: argparse.Namespace) -> int:
+    from .adjudication import render, score_sheet
+
+    proxies = list(args.proxy)
+    if args.matrix:
+        proxies += Matrix.load(args.matrix).attacker_proxies
+    result = score_sheet(Path(args.sheet), Path(args.key), attacker_proxies=proxies)
+    markdown = render(result)
+    out = Path(args.sheet).with_suffix(".md")
+    out.write_text(markdown, encoding="utf-8")
+    out.with_suffix(".json").write_text(json.dumps(result, indent=2), encoding="utf-8")
+    print(markdown)
+    print(f"written: {out}, {out.with_suffix('.json')}")
+    return 0 if not (result["disputed"] or result["pending"]) else 3
+
+
+def cmd_import_fix(args: argparse.Namespace) -> int:
+    from .timesplit import TimeSplitError, import_fix
+
+    try:
+        manifest = import_fix(Path(args.repo), args.vulnerable, args.fixed, Path(args.dest),
+                              published=args.published, cwes=list(args.cwe),
+                              advisory=args.advisory, subdir=args.subdir, target_id=args.id)
+    except TimeSplitError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    target = load_target(manifest)
+    print(f"{target.id}: vulnerable version exported to {target.root} (no history); "
+          f"{len(target.vulnerabilities[0].locations)} location(s) from the fix diff")
+    print("next: fill the training cutoffs in configs/models.json, then "
+          f"security-eval scan bandit {manifest}")
+    return 0
+
+
 def cmd_report(args: argparse.Namespace) -> int:
     out_dir = Path(args.run_dir)
     if not (out_dir / "ledger.jsonl").is_file():
@@ -228,6 +272,37 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--fake", action="store_true",
                    help="skip the provider and tooling checks, as a --fake run would")
     p.set_defaults(func=cmd_check)
+
+    p = sub.add_parser("adjudicate", help="blind human review of findings on real code")
+    adj = p.add_subparsers(dest="step", required=True)
+    q = adj.add_parser("export", help="pool candidates from runs into a blind review sheet")
+    q.add_argument("run_dirs", nargs="+")
+    q.add_argument("--sheet", default="adjudication/sheet.csv")
+    q.add_argument("--key", default="adjudication/key.json")
+    q.add_argument("--seed", type=int, default=0, help="shuffle seed for the sheet's order")
+    q.set_defaults(func=cmd_adjudicate_export)
+    q = adj.add_parser("import", help="score the reviewers' verdicts")
+    q.add_argument("--sheet", default="adjudication/sheet.csv")
+    q.add_argument("--key", default="adjudication/key.json")
+    q.add_argument("--proxy", action="append", default=[],
+                   help="a model route standing in for an attacker; repeatable")
+    q.add_argument("--matrix", default="", help="take attacker_proxies from this matrix")
+    q.set_defaults(func=cmd_adjudicate_import)
+
+    p = sub.add_parser("import-fix",
+                       help="a time-split target from a real fix: vulnerable version and key")
+    p.add_argument("repo", help="a local clone")
+    p.add_argument("--vulnerable", required=True, help="the commit before the fix")
+    p.add_argument("--fixed", required=True, help="the commit that fixed it")
+    p.add_argument("--published", required=True, help="disclosure date, YYYY-MM-DD")
+    p.add_argument("--cwe", action="append", default=[], required=True,
+                   help="a CWE describing it; repeatable")
+    p.add_argument("--advisory", default="", help="advisory id, kept where no model sees it")
+    p.add_argument("--subdir", default="", help="export and locate only under this path")
+    p.add_argument("--id", default="", help="a neutral target id (default ts-<hash>)")
+    p.add_argument("--dest", required=True, help="where to write the benchmark, e.g. "
+                                                 "benchmarks/ts-001")
+    p.set_defaults(func=cmd_import_fix)
 
     p = sub.add_parser("report", help="aggregate a matrix's results into the study's numbers")
     p.add_argument("run_dir", help="the matrix's output directory, e.g. runs/pilot")
