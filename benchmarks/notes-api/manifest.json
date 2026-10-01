@@ -1,0 +1,30 @@
+{
+  "id": "notes-api",
+  "root": "src",
+  "language": "python",
+  "public": false,
+  "vulnerabilities": [
+    {"id": "V1", "cwe": "CWE-89", "path": "notes/db.py", "lines": [15, 16],
+     "also": [{"path": "notes/handlers.py", "lines": [7, 8]}],
+     "description": "sort order from the request is concatenated into ORDER BY; the handler passes it unchecked and SORTABLE is never consulted"},
+    {"id": "V2", "cwe": ["CWE-916", "CWE-327", "CWE-328"], "path": "notes/auth.py", "lines": [12, 12],
+     "description": "passwords hashed with salted MD5, a fast general-purpose hash"},
+    {"id": "V3", "cwe": ["CWE-208", "CWE-385"], "path": "notes/auth.py", "lines": [16, 16],
+     "description": "service token compared with ==, which returns early and leaks timing"},
+    {"id": "V4", "cwe": ["CWE-639", "CWE-862", "CWE-284"], "path": "notes/handlers.py", "lines": [18, 21],
+     "description": "show_note returns any note by id without checking it belongs to the user"},
+    {"id": "V5", "cwe": "CWE-918", "path": "notes/fetch.py", "lines": [8, 10],
+     "also": [{"path": "notes/handlers.py", "lines": [33, 33]}],
+     "description": "link preview fetches any user-supplied URL, including internal hosts and file://"},
+    {"id": "V6", "cwe": ["CWE-79", "CWE-80"], "path": "notes/render.py", "lines": [8, 10],
+     "description": "note title interpolated into HTML unescaped, while the body beside it is escaped"}
+  ],
+  "decoys": [
+    {"id": "D1", "path": "notes/db.py", "lines": [20, 21], "description": "parameterised LIKE search"},
+    {"id": "D2", "path": "notes/auth.py", "lines": [20, 20], "description": "session compared with hmac.compare_digest"},
+    {"id": "D3", "path": "notes/handlers.py", "lines": [25, 27], "description": "delete checks ownership"},
+    {"id": "D4", "path": "notes/fetch.py", "lines": [14, 15], "description": "avatar URL built from a fixed host and an integer id"},
+    {"id": "D5", "path": "notes/render.py", "lines": [14, 14], "description": "list titles are escaped"},
+    {"id": "D6", "path": "notes/render.py", "lines": [19, 19], "description": "MD5 used for an ETag, not for anything secret"}
+  ]
+}

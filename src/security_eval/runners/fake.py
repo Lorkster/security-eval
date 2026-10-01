@@ -34,7 +34,8 @@ class FakeRunner:
         self.tokens = tokens
         self.seed = seed
 
-    def run(self, target: Target, route: str, workdir: Path, task: str = TASK) -> RunResult:
+    def run(self, target: Target, route: str, workdir: Path, task: str = TASK,
+            effort: str = "") -> RunResult:
         # Reproducible, not secret: the same cell always gets the same answer.
         rng = random.Random(f"{self.seed}:{target.id}:{route}:{workdir.name}")  # noqa: S311
         findings = [

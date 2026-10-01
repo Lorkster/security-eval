@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import sys
 from pathlib import Path
@@ -12,6 +13,9 @@ from .finding import SecurityFinding
 from .ledger import Ledger, Outcome
 from .manifest import ManifestError, load_target
 from .matrix import Matrix, estimate, run_matrix
+from .preflight import render as render_checks
+from .preflight import run_checks
+from .report import load_cells, render_markdown, summarise, write_cells_csv
 from .runners.base import Runner
 from .runners.fake import FakeRunner
 from .sarif import to_sarif
@@ -48,12 +52,52 @@ def cmd_estimate(args: argparse.Namespace) -> int:
     return 0 if result["fits"] else 1
 
 
+def _preflight(matrix: Matrix, args: argparse.Namespace) -> bool:
+    """Run the checks; print them; say whether the matrix may start."""
+    if getattr(args, "skip_check", False):
+        print("preflight skipped (--skip-check)")
+        return True
+    checks = run_checks(matrix, PriceTable.load(args.prices), fake=args.fake)
+    print(render_checks(checks))
+    failed = [c for c in checks if c.level == "fail"]
+    if failed:
+        print(f"\n{len(failed)} check(s) failed; nothing was run. Fix them, or pass "
+              "--skip-check if you are sure.")
+    return not failed
+
+
+def cmd_check(args: argparse.Namespace) -> int:
+    ok = _preflight(Matrix.load(args.matrix), args)
+    return 0 if ok else 1
+
+
 def cmd_run(args: argparse.Namespace) -> int:
     matrix = Matrix.load(args.matrix)
+    if not _preflight(matrix, args):
+        return 1
     out = Path(args.out or Path("runs") / matrix.name)
     ledger = run_matrix(matrix, _runners(args.fake), out, PriceTable.load(args.prices),
                         dry_run=args.dry_run)
     _summary(ledger)
+    return 0
+
+
+def cmd_report(args: argparse.Namespace) -> int:
+    out_dir = Path(args.run_dir)
+    if not (out_dir / "ledger.jsonl").is_file():
+        print(f"no ledger in {out_dir}", file=sys.stderr)
+        return 2
+    cells = load_cells(out_dir, tolerance=args.tolerance, stated_only=args.stated_only)
+    summary = summarise(cells)
+    suffix = "-stated" if args.stated_only else ""
+    markdown = render_markdown(summary, title=f"Results: {out_dir.name}",
+                               stated_only=args.stated_only)
+    (out_dir / f"report{suffix}.md").write_text(markdown, encoding="utf-8")
+    (out_dir / f"report{suffix}.json").write_text(json.dumps(summary, indent=2),
+                                                  encoding="utf-8")
+    write_cells_csv(cells, out_dir / f"cells{suffix}.csv")
+    print(markdown)
+    print(f"written: report{suffix}.md, report{suffix}.json, cells{suffix}.csv in {out_dir}")
     return 0
 
 
@@ -68,6 +112,8 @@ def cmd_gate(args: argparse.Namespace) -> int:
         budget_usd=args.budget_usd,
         tokens_per_run={"baseline": (60_000, 8_000)},
     )
+    if not _preflight(matrix, args):
+        return 1
     out = Path(args.out or Path("runs") / "viability-gate")
     ledger = run_matrix(matrix, _runners(args.fake), out, PriceTable.load(args.prices),
                         dry_run=args.dry_run)
@@ -132,7 +178,22 @@ def build_parser() -> argparse.ArgumentParser:
         p.add_argument("--fake", action="store_true",
                        help="answer every condition with the zero-cost fake runner")
         p.add_argument("--dry-run", action="store_true", help="say what would run")
+        p.add_argument("--skip-check", action="store_true",
+                       help="start without the preflight checks")
         p.set_defaults(func=func)
+
+    p = sub.add_parser("check", help="everything checkable about a matrix before spending")
+    p.add_argument("matrix")
+    p.add_argument("--fake", action="store_true",
+                   help="skip the provider and tooling checks, as a --fake run would")
+    p.set_defaults(func=cmd_check)
+
+    p = sub.add_parser("report", help="aggregate a matrix's results into the study's numbers")
+    p.add_argument("run_dir", help="the matrix's output directory, e.g. runs/pilot")
+    p.add_argument("--tolerance", type=int, default=3)
+    p.add_argument("--stated-only", action="store_true",
+                   help="count a location recovered from evidence as no location")
+    p.set_defaults(func=cmd_report)
 
     p = sub.add_parser("score", help="score a findings file against a manifest")
     p.add_argument("manifest")
@@ -147,7 +208,17 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _utf8_streams() -> None:
+    """Write UTF-8 whatever the console's encoding: reports contain non-ASCII."""
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is not None:
+            with contextlib.suppress(ValueError, OSError):
+                reconfigure(encoding="utf-8", errors="replace")
+
+
 def main(argv: list[str] | None = None) -> int:
+    _utf8_streams()
     args = build_parser().parse_args(argv)
     result: int = args.func(args)
     return result

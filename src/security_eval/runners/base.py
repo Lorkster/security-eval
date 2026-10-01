@@ -36,6 +36,28 @@ def load_prompts(path: Path | str = DEFAULT_PROMPTS) -> dict[str, str]:
     return {k: str(v) for k, v in data.items() if not k.startswith("_")}
 
 
+#: Providers whose models take an ``effort`` level (current Claude models).
+EFFORT_PROVIDERS = frozenset({"anthropic", "bedrock"})
+EFFORT_LEVELS = ("low", "medium", "high", "xhigh", "max")
+
+
+def effort_params(route: str, effort: str) -> dict[str, Any] | None:
+    """Request parameters setting ``effort`` on ``route``, or ``None`` if there is none to set.
+
+    Effort is set explicitly rather than left to the model's default because
+    the defaults differ between models (Opus 5.5 defaults to ``medium``, Sonnet
+    5.5 to ``high``), and a comparison that left it implicit would be comparing
+    effort levels without saying so.
+    """
+    if not effort:
+        return None
+    if effort not in EFFORT_LEVELS:
+        raise ValueError(f"unknown effort {effort!r}; use one of {', '.join(EFFORT_LEVELS)}")
+    if route.split(":", 1)[0] not in EFFORT_PROVIDERS:
+        return None
+    return {"output_config": {"effort": effort}}
+
+
 def prompt_hash(text: str) -> str:
     """A short, stable fingerprint of a prompt, recorded with every cell.
 
@@ -59,8 +81,9 @@ class Runner(Protocol):
     #: The condition this runner implements: "baseline", "harness", "fake".
     condition: str
 
-    def run(self, target: Target, route: str, workdir: Path, task: str = TASK) -> RunResult:
-        """Run ``task`` on ``target`` with the model at ``route``.
+    def run(self, target: Target, route: str, workdir: Path, task: str = TASK,
+            effort: str = "") -> RunResult:
+        """Run ``task`` on ``target`` with the model at ``route``, at ``effort`` if it takes one.
 
         ``workdir`` is empty and belongs to this cell alone. A runner must not
         write into ``target.root``: targets are shared by every cell.

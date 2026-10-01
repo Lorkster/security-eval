@@ -18,12 +18,45 @@ def test_the_toy_manifest_matches_its_code(toy: Target) -> None:
     assert len(toy.decoys) == 5
 
 
-def test_nothing_in_the_toy_source_names_the_answers(toy: Target) -> None:
+BENCHMARKS = sorted((Path(__file__).resolve().parents[1] / "benchmarks").glob("*/manifest.json"))
+
+
+@pytest.mark.parametrize("manifest", BENCHMARKS, ids=lambda p: p.parent.name)
+def test_every_benchmark_is_valid_and_names_none_of_its_answers(manifest: Path) -> None:
     """The model reads `src/`. A comment saying what is planted gives the answer away."""
-    for path in toy.root.rglob("*.py"):
-        text = path.read_text(encoding="utf-8").lower()
-        for tell in ("vulnerab", "planted", "benchmark", "cwe", "decoy", "insecure"):
+    target = load_target(manifest)
+    for path in target.root.rglob("*"):
+        if not path.is_file():
+            continue
+        text = path.read_text(encoding="utf-8", errors="replace").lower()
+        for tell in ("vulnerab", "planted", "benchmark", "cwe", "decoy", "insecure",
+                     "exploit", "attack"):
             assert tell not in text, f"{path.name} contains {tell!r}"
+
+
+def test_a_cross_file_flaw_can_be_reported_at_either_end() -> None:
+    from security_eval.scoring import score
+
+    notes = load_target(Path(__file__).resolve().parents[1] / "benchmarks" / "notes-api"
+                        / "manifest.json")
+    at_sink = SecurityFinding("t", cwe="CWE-89", location=Location("notes/db.py", 15, 15))
+    at_source = SecurityFinding("t", cwe="CWE-89", location=Location("notes/handlers.py", 7, 7))
+
+    assert score([at_sink], notes).tp_strict == 1
+    assert score([at_source], notes).tp_strict == 1
+    assert score([at_sink, at_source], notes).duplicates == 1, "one flaw, reported twice"
+
+
+def test_any_listed_cwe_passes_the_strict_reading() -> None:
+    from security_eval.scoring import score
+
+    notes = load_target(Path(__file__).resolve().parents[1] / "benchmarks" / "notes-api"
+                        / "manifest.json")
+    for cwe in ("CWE-916", "CWE-327", "CWE-328"):
+        f = SecurityFinding("md5", cwe=cwe, location=Location("notes/auth.py", 12, 12))
+        assert score([f], notes).tp_strict == 1, cwe
+    wrong = SecurityFinding("md5", cwe="CWE-89", location=Location("notes/auth.py", 12, 12))
+    assert score([wrong], notes).tp_strict == 0
 
 
 def test_a_manifest_pointing_past_the_end_of_a_file_is_rejected(tmp_path: Path) -> None:

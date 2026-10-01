@@ -46,10 +46,12 @@ class Record:
     outcome: Outcome
     prompt: str = ""
     prompt_sha: str = ""
+    effort: str = ""
     cost_usd: float = 0.0
     input_tokens: int = 0
     output_tokens: int = 0
     cache_read_tokens: int = 0
+    cache_write_tokens: int = 0
     seconds: float = 0.0
     findings_path: str = ""
     detail: str = ""

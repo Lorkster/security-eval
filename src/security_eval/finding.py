@@ -59,6 +59,12 @@ class SecurityFinding:
     triage: Verdict | None = None
     source: str = ""                        # "baseline:claude-sonnet-5-5", "harness:...", "semgrep"
     id: str = ""
+    # How the location was obtained: "stated" -- the model filled in the
+    # location field it was asked for; "recovered" -- it did not, and a
+    # `path:line` was found in its evidence instead; "" -- no location. Both
+    # conditions apply the same rule, and the scorer can be told to accept only
+    # stated locations, so the leniency is visible rather than hidden.
+    location_source: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         data = asdict(self)
@@ -81,6 +87,7 @@ class SecurityFinding:
             triage=Verdict(triage) if triage else None,
             source=str(data.get("source", "")),
             id=str(data.get("id", "")),
+            location_source=str(data.get("location_source", "")),
         )
 
 
@@ -116,6 +123,19 @@ def find_cwe(*texts: str) -> str | None:
         if match:
             return f"CWE-{int(match.group(1))}"
     return None
+
+
+def locate(stated: str, *fallback: str) -> tuple[Location | None, str]:
+    """A finding's location and how it was obtained -- the one rule both conditions use.
+
+    ``stated`` is the location field the model was asked to fill in; ``fallback``
+    is its evidence and detail, searched only when the field gave nothing.
+    """
+    location = find_location(stated)
+    if location is not None:
+        return location, "stated"
+    location = find_location(*fallback)
+    return (location, "recovered") if location is not None else (None, "")
 
 
 def find_location(*texts: str) -> Location | None:

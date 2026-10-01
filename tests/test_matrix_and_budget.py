@@ -29,7 +29,8 @@ class Paid:
         self.usage = usage or Usage(1_000_000, 0)
         self.calls = 0
 
-    def run(self, target: Target, route: str, workdir: Path, task: str = "") -> RunResult:
+    def run(self, target: Target, route: str, workdir: Path, task: str = "",
+            effort: str = "") -> RunResult:
         self.calls += 1
         outcome = self.outcomes.pop(0) if self.outcomes else Outcome.OK
         return RunResult(outcome, usage=self.usage)
@@ -146,7 +147,8 @@ def test_a_runner_that_raises_is_recorded_and_the_matrix_carries_on(
     tmp_path: Path, prices: PriceTable
 ) -> None:
     class Broken(Paid):
-        def run(self, target: Target, route: str, workdir: Path, task: str = "") -> RunResult:
+        def run(self, target: Target, route: str, workdir: Path, task: str = "",
+            effort: str = "") -> RunResult:
             self.calls += 1
             if self.calls == 1:
                 raise RuntimeError("bug in a runner")
@@ -186,7 +188,8 @@ def test_prompt_variants_are_cells_and_the_ledger_records_which_text_ran(
     seen: list[str] = []
 
     class Recording(Paid):
-        def run(self, target: Target, route: str, workdir: Path, task: str = "") -> RunResult:
+        def run(self, target: Target, route: str, workdir: Path, task: str = "",
+            effort: str = "") -> RunResult:
             seen.append(task)
             return super().run(target, route, workdir, task)
 
@@ -206,3 +209,23 @@ def test_an_unknown_prompt_name_stops_the_matrix_before_anything_is_spent(
         run_matrix(matrix(prompts=["plain", "persuasive"]), {"baseline": runner}, tmp_path,
                    prices, progress=quiet)
     assert runner.calls == 0
+
+
+def test_effort_is_a_dimension_that_reaches_the_runner_and_the_ledger(
+    tmp_path: Path, prices: PriceTable
+) -> None:
+    seen: list[str] = []
+
+    class Recording(Paid):
+        def run(self, target: Target, route: str, workdir: Path, task: str = "",
+                effort: str = "") -> RunResult:
+            seen.append(effort)
+            return super().run(target, route, workdir, task)
+
+    ledger = run_matrix(matrix(efforts=["low", "high"], repeats=1), {"baseline": Recording()},
+                        tmp_path, prices, progress=quiet)
+
+    assert seen == ["low", "high"]
+    records = ledger.records()
+    assert [r.effort for r in records] == ["low", "high"]
+    assert len({r.cell for r in records}) == 2, "each effort level is its own cell"
