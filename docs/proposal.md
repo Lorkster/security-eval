@@ -25,6 +25,19 @@ than forking it.
 | **RQ2** | Does a supervised, multi-lens harness change that, and at what price? | the RQ1 metrics for the harness condition beside the baseline, and **cost per true positive** in dollars and tokens |
 | **RQ3** | How well does a model triage scanner output? | accuracy and confusion matrix of true-positive / false-positive verdicts against labels; severity agreement |
 | **RQ4** | When a run fails, whose failure is it? | outcome counts by cause: model (refused, malformed output, missed) versus harness (agent stopped by drift control, agent abandoned, phase failed) |
+| **RQ5** | Do models find real flaws disclosed after their training cutoff? | recall and precision against the fix commit, with the contamination controls of `beyond-known-issues.md` |
+| **RQ6** | What do models find in real code that the company's own scanners miss? | blind two-reviewer adjudication: precision, verified findings no scanner reported, relative recall, Cohen's kappa |
+| **RQ7** | Of what an unregulated model finds, how much do the regulated ones also find? | attacker-proxy coverage, from the same adjudication |
+| **RQ8** | Do the proposed fixes work? | regression test fails before the fix and passes after, without breaking the suite, in a sandbox |
+
+**Known issues are calibration, not the result.** Tools like Snyk already find
+known patterns, and the company already runs them. RQ1–RQ3 on seeded benchmarks
+show whether a condition works at all, and they are the only place recall can
+be measured exactly. The headline is RQ5–RQ8: flaws the models cannot have
+seen, findings beyond the company's own tools, and coverage of what an
+attacker's model would find. How each is measured without fooling ourselves,
+including why looking a CVE up online would be cheating and how the study
+prevents it, is in [`beyond-known-issues.md`](beyond-known-issues.md).
 
 RQ2 is the one that makes this project different from a model leaderboard, and
 it is the one that is easiest to get wrong — see §4.

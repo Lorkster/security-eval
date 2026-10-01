@@ -78,6 +78,31 @@ positive), **real kept** (real ones judged true positive) and accuracy. It also
 scores each scanner on the same answer key as the models, so the company's own
 tools are part of the comparison.
 
+## Beyond known issues
+
+Known-issue benchmarks are calibration. The study's headline is what lies past
+them. See [`docs/beyond-known-issues.md`](docs/beyond-known-issues.md).
+
+```bash
+security-eval import-fix REPO --vulnerable SHA --fixed SHA --published DATE --cwe CWE-79 \
+    --dest benchmarks/ts-001                        # RQ5: disclosed after the cutoff
+security-eval adjudicate export runs/real           # RQ6/RQ7: blind sheet for two reviewers
+security-eval adjudicate import --matrix configs/matrix.real.json
+```
+
+- **Time-split targets** export the vulnerable version without history and take
+  the answer key from the fix commit. Preflight refuses one disclosed before a
+  model's training cutoff (`configs/models.json`), an id that names the
+  advisory, or a harness config that could reach the network.
+- **Real code** (`"open": true`) has no key. Its findings, with the scanners',
+  are pooled, merged by place, and judged blind by two reviewers.
+  `adjudicate import` gives kappa, precision, findings beyond the scanners,
+  relative recall and attacker-proxy coverage, and scores triage against the
+  verdicts.
+- **Where code goes** depends on the route (Anthropic, AWS, a third party, or
+  nowhere for Ollama). A manifest's `allowed_providers` holds the owner's
+  approval. Preflight and the runner both refuse anything else.
+
 ## Batching (half price)
 
 `"batch": true` in a matrix (or `run --batch`) sends eligible cells through the
@@ -133,6 +158,8 @@ src/security_eval/
   preflight.py       everything checkable before a token is paid for
   batch.py           the Message Batches API: eligibility, requests, the in-flight record
   scanners.py        run scanners, keep their SARIF, label findings by the answer key
+  timesplit.py       time-split targets from a real fix commit
+  adjudication.py    blind pooling, review sheets, kappa and the open-world metrics
   report.py          the ledger, aggregated into the study's numbers
   runners/
     fake.py          zero-cost runner answering from the manifest

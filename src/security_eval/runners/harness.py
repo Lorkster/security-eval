@@ -25,10 +25,12 @@ on a different model would be mislabelled data.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import shutil
 import subprocess
+import tempfile
 import time
 from pathlib import Path
 from typing import Any
@@ -58,8 +60,10 @@ class HarnessRunner:
 
     def run(self, target: Target, route: str, workdir: Path, task: str = TASK,
             effort: str = "") -> RunResult:
-        tree = workdir / "tree"
+        tree = neutral_tree(workdir)
         home = workdir / "home"
+        if tree.exists():
+            shutil.rmtree(tree, ignore_errors=True)
         shutil.copytree(target.root, tree)
         home.mkdir(parents=True)
         try:
@@ -145,6 +149,7 @@ class HarnessRunner:
                 "stop_reasons": stop_reasons(events.get("events", [])),
                 "effort": effort if params else "",
                 "harness_home": str(home),
+                "harness_tree": str(tree),
             },
         )
 
@@ -199,6 +204,17 @@ class HarnessRunner:
     def _routing(self, env: dict[str, str], tree: Path) -> dict[str, str]:
         routing = self._json(["providers", "--json", "-w", str(tree)], env).get("routing", {})
         return {str(k): str(v) for k, v in routing.items()} if isinstance(routing, dict) else {}
+
+
+def neutral_tree(workdir: Path) -> Path:
+    """Where the target's copy goes: a path that says nothing about the target.
+
+    The harness shows its agents the workspace path, and the cell's own
+    directory is named after the target -- which for a time-split benchmark
+    could carry an advisory id. Named by a hash instead, outside the run.
+    """
+    digest = hashlib.sha256(str(workdir.resolve()).encode("utf-8")).hexdigest()[:12]
+    return Path(tempfile.gettempdir()) / "security-eval-work" / digest / "repo"
 
 
 def route_variable(stage: str) -> str:

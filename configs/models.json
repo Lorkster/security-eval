@@ -1,0 +1,9 @@
+{
+  "_comment": "Training cutoffs (YYYY-MM-DD), copied from each provider's model documentation (Anthropic: https://platform.claude.com/docs/en/about-claude/models/overview). Fill before using time-split targets: preflight refuses a target disclosed on or before a model's cutoff, and warns where a cutoff is unknown. Left empty here on purpose -- a guessed date would make the contamination check meaningless.",
+  "models": {
+    "claude-opus-5-5":   { "training_cutoff": null },
+    "claude-sonnet-5-5": { "training_cutoff": null },
+    "claude-haiku-4-5":  { "training_cutoff": null },
+    "claude-fable-5-1":  { "training_cutoff": null }
+  }
+}

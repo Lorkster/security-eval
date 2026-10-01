@@ -29,12 +29,27 @@ Two optional fields, for the cases where one answer would be unfair:
 * ``"cwe": ["CWE-916", "CWE-327", "CWE-328"]`` -- a list when several CWEs
   describe the flaw correctly. The first is the one reported; any of them
   passes the strict reading.
+
+Three more, for the tracks beyond known issues (docs/beyond-known-issues.md):
+
+* ``"open": true`` -- real code with no answer key. Nothing is scored against
+  it automatically; its findings go to blind human adjudication instead.
+* ``"source": {"repo", "vulnerable", "fixed", "published", "advisory"}`` --
+  where a time-split target came from. ``published`` is the disclosure date the
+  preflight check holds against each model's training cutoff. The advisory id
+  lives here and nowhere the model can see.
+* ``"allowed_providers": ["bedrock", "ollama"]`` -- where this target's code may
+  be sent. Code goes to whichever provider serves the model -- Anthropic for
+  ``anthropic:``, AWS for ``bedrock:``, a third party for ``openrouter:``,
+  nowhere for ``ollama:`` -- so company code carries the list its owner
+  approved, and a cell routed anywhere else is refused.
 """
 
 from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
+from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -70,6 +85,13 @@ class Target:
     manifest_path: Path | None = None
     #: Scanner output kept beside the benchmark: tool -> SARIF file.
     scans: dict[str, Path] = field(default_factory=dict)
+    open: bool = False
+    source: dict[str, str] = field(default_factory=dict)
+    #: Providers this target's code may be sent to; empty means any.
+    allowed_providers: list[str] = field(default_factory=list)
+
+    def allows(self, route: str) -> bool:
+        return not self.allowed_providers or route.split(":", 1)[0] in self.allowed_providers
 
 
 class ManifestError(ValueError):
@@ -95,6 +117,9 @@ def load_target(manifest: Path | str) -> Target:
         manifest_path=path,
         scans={str(tool): (path.parent / str(rel)).resolve()
                for tool, rel in (data.get("scans") or {}).items()},
+        open=bool(data.get("open", False)),
+        source={str(k): str(v) for k, v in (data.get("source") or {}).items()},
+        allowed_providers=[str(x) for x in data.get("allowed_providers") or []],
     )
     problems = validate(target)
     if problems:
@@ -156,6 +181,12 @@ def validate(target: Target) -> list[str]:
     for vuln in target.vulnerabilities:
         if vuln.cwe is None:
             problems.append(f"{vuln.id}: a vulnerability needs a CWE")
-    if not target.vulnerabilities:
-        problems.append("no vulnerabilities: nothing to score recall against")
+    if not target.vulnerabilities and not target.open:
+        problems.append("no vulnerabilities: nothing to score recall against "
+                        "(mark it \"open\": true if it is real code for adjudication)")
+    if target.source.get("published"):
+        try:
+            date.fromisoformat(target.source["published"])
+        except ValueError:
+            problems.append(f"source.published {target.source['published']!r} is not YYYY-MM-DD")
     return problems

@@ -35,4 +35,6 @@ whose lens ran on a different model would be mislabelled.
 | `batch` | `true` to send eligible cells (baseline and triage on the `anthropic` route) through the Batches API at half price |
 | `scanner` | the scan the `triage` condition judges (default `bandit`); each target needs it under `"scans"` |
 | `triage_prompt` | the prompt the `triage` condition uses (default `triage`); the `prompts` dimension does not apply to triage |
+| `attacker_proxies` | model routes standing in for an unregulated attacker (legal open-weight models, run on the same defensive task); adjudication reports coverage of what they find |
+| `models_file` | training cutoffs for the time-split check (default `configs/models.json`, which must be filled in) |
 | `efforts` | effort levels (`low` … `max`) to run, each as its own cells; only models that take one (current Claude models via `anthropic` or `bedrock`) are affected. Set it explicitly: Opus 5.5 and Sonnet 5.5 have different defaults |

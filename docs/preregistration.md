@@ -47,6 +47,15 @@ Which one is **primary** for each hypothesis: ___
 - **Held-out set** (headline numbers, no tuning): ___
 - How the split was made (before looking at any results): ___
 
+## Tracks beyond known issues
+
+- Time-split targets, their disclosure dates, and the cutoff **margin** required: ___
+- Training cutoffs used (`configs/models.json`, with the source of each): ___
+- Real-code targets, and which may go to which providers (`allowed_providers`): ___
+- Attacker proxies: ___
+- Adjudication: reviewers (two, named), how disagreements are resolved, maximum
+  candidates (random sample if over), and what evidence a `tp` needs: ___
+
 ## Exclusion rules
 
 A run, target or model is excluded only if: ___

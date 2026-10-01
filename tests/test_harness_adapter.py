@@ -160,3 +160,8 @@ def test_effort_is_written_to_the_cells_own_trusted_config(
     assert written == {"providers": {"anthropic": {"params": {"output_config":
                                                               {"effort": "high"}}}}}
     assert result.outcome.value == "error", "the fake CLI is missing, so the run itself fails"
+
+    from security_eval.runners.harness import neutral_tree
+
+    assert neutral_tree(workdir).is_dir(), "the copy is made under the neutral path"
+    assert not (workdir / "tree").exists(), "and not under the cell's own, target-named one"

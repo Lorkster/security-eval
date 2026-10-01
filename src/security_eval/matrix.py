@@ -34,7 +34,7 @@ import sys
 import time
 from collections.abc import Callable, Mapping
 from dataclasses import asdict, dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 
@@ -50,6 +50,21 @@ from .budget import BudgetExceeded, BudgetGuard, PriceTable, Usage
 from .ledger import Ledger, Outcome, Record
 from .manifest import Target, load_target
 from .runners.base import DEFAULT_PROMPTS, Runner, RunResult, load_prompts, prompt_hash
+
+DEFAULT_MODELS = Path(__file__).resolve().parents[2] / "configs" / "models.json"
+
+
+def training_cutoff(models_file: Path, route: str) -> date | None:
+    """A model's training cutoff from the models file, or ``None`` if it is not recorded."""
+    if not models_file.is_file():
+        return None
+    models = json.loads(models_file.read_text(encoding="utf-8")).get("models", {})
+    model = route.split(":", 1)[-1]
+    for key in (model, model.rsplit("/", 1)[-1]):
+        raw = (models.get(key) or {}).get("training_cutoff")
+        if raw:
+            return date.fromisoformat(str(raw))
+    return None
 
 
 @dataclass
@@ -74,6 +89,11 @@ class Matrix:
     #: The prompt the triage condition uses (from the prompts file). Triage has
     #: its own task, so the `prompts` dimension does not apply to it.
     triage_prompt: str = "triage"
+    #: Models standing in for an unregulated attacker: legal open-weight models,
+    #: run on the same defensive task. Adjudication reports how much of what
+    #: they find the other models also find.
+    attacker_proxies: list[str] = field(default_factory=list)
+    models_file: Path = DEFAULT_MODELS
 
     @classmethod
     def load(cls, path: Path | str) -> Matrix:
@@ -96,6 +116,9 @@ class Matrix:
             batch=bool(data.get("batch", False)),
             scanner=str(data.get("scanner", "bandit")),
             triage_prompt=str(data.get("triage_prompt", "triage")),
+            attacker_proxies=[str(m) for m in data.get("attacker_proxies", [])],
+            models_file=(_resolve(base, data["models_file"]) if "models_file" in data
+                         else DEFAULT_MODELS),
         )
 
     def prompts_for(self, condition: str) -> list[str]:
@@ -239,6 +262,16 @@ def run_matrix(
         runner = runners.get(cell.condition)
         if runner is None:
             raise KeyError(f"no runner for condition {cell.condition!r}")
+        target = targets[cell.manifest]
+        if not target.allows(cell.model):
+            # Enforced here as well as in preflight, so --skip-check cannot send
+            # code somewhere its owner did not approve. Final: retrying will not
+            # change the policy.
+            ledger.append(_record(
+                cell, Outcome.SKIPPED_POLICY, prompt_sha=prompt_hash(available[cell.prompt]),
+                detail=f"{target.id} may only go to {', '.join(target.allowed_providers)}"))
+            progress(f"skip  {cell.id}: data policy forbids {cell.model.split(':', 1)[0]}")
+            continue
         # Only a runner that can build batch requests is batched; the fake runners
         # cannot, so a --fake matrix always runs live.
         batched = matrix.batched(cell) and hasattr(runner, "batch_items")
@@ -325,7 +358,15 @@ class _Run:
             json.dumps([f.to_dict() for f in result.findings], indent=2), encoding="utf-8")
         target = self.targets[cell.manifest]
         extra: dict[str, Any] = {**result.extra, "manifest": str(cell.manifest)}
-        if getattr(runner, "kind", "detect") == "triage":
+        if target.open:
+            # No answer key: findings (or triage verdicts) are kept for blind
+            # adjudication, and nothing is scored against an empty key, which
+            # would call every finding a false positive.
+            extra["open"] = True
+            if getattr(runner, "kind", "detect") == "triage":
+                extra["kind"] = "triage"
+            summary = f"{len(result.findings)} item(s) kept for adjudication"
+        elif getattr(runner, "kind", "detect") == "triage":
             from .scanners import label
 
             triaged = score_triage([f.triage for f in result.findings],

@@ -19,14 +19,16 @@ import shutil
 import subprocess
 import tempfile
 from dataclasses import dataclass
+from datetime import date
 from pathlib import Path
 from typing import Any
 
 from .batch import supports_batch
 from .budget import PriceTable
-from .manifest import ManifestError, load_target
-from .matrix import BATCHABLE, Matrix, estimate
+from .manifest import ManifestError, Target, load_target
+from .matrix import BATCHABLE, Matrix, estimate, training_cutoff
 from .runners.base import EFFORT_LEVELS, EFFORT_PROVIDERS, load_prompts, prompt_hash
+from .timesplit import looks_like_advisory
 
 LOCAL_PROVIDERS = frozenset({"fake", "ollama"})
 
@@ -79,6 +81,7 @@ def run_checks(matrix: Matrix, prices: PriceTable, *, fake: bool = False,
 
     if matrix.batch:
         out.extend(_batching(matrix))
+    out.extend(_beyond_known(matrix, targets))
 
     for effort in matrix.efforts:
         if effort and effort not in EFFORT_LEVELS:
@@ -109,6 +112,74 @@ def run_checks(matrix: Matrix, prices: PriceTable, *, fake: bool = False,
     if not fake:
         out.extend(_environment(matrix, supervisor))
     return out
+
+
+def _beyond_known(matrix: Matrix, targets: list[Target]) -> list[Check]:
+    """The checks the tracks beyond known issues depend on: contamination and data policy."""
+    out: list[Check] = []
+    for target in targets:
+        bad = [m for m in matrix.models if not target.allows(m)]
+        if bad:
+            out.append(Check("fail", f"{target.id} may only go to "
+                                     f"{', '.join(target.allowed_providers)}; the matrix would "
+                                     f"send it to {', '.join(bad)}"))
+        published = target.source.get("published")
+        if not published:
+            continue
+        if looks_like_advisory(target.id):
+            out.append(Check("fail", f"target id {target.id!r} looks like an advisory id, and "
+                                     "the harness shows its agents the workspace path"))
+        disclosed = date.fromisoformat(published)
+        for model in matrix.models:
+            cutoff = training_cutoff(matrix.models_file, model)
+            if cutoff is None:
+                out.append(Check("warn", f"{target.id} (disclosed {published}): no training "
+                                         f"cutoff recorded for {model} in {matrix.models_file}; "
+                                         "the contamination check cannot run"))
+            elif disclosed <= cutoff:
+                out.append(Check("fail", f"{target.id} was disclosed {published}, on or before "
+                                         f"{model}'s training cutoff {cutoff}: it may have been "
+                                         "in its training data"))
+            else:
+                out.append(Check("ok", f"{target.id} disclosed {published}, after {model}'s "
+                                       f"cutoff {cutoff}"))
+
+    missing = [p for p in matrix.attacker_proxies if p not in matrix.models]
+    if missing:
+        out.append(Check("fail", f"attacker proxies {', '.join(missing)} are not in the "
+                                 "matrix's models, so nothing would run them"))
+    elif matrix.attacker_proxies:
+        out.append(Check("ok", f"attacker proxies: {', '.join(matrix.attacker_proxies)}"))
+
+    if "harness" in matrix.conditions:
+        allowed = _harness_runs_commands()
+        time_split = any(t.source.get("published") for t in targets)
+        if allowed and time_split:
+            out.append(Check("fail", "the harness config allows command execution: an agent "
+                                     "could fetch the advisory for a time-split target. Turn "
+                                     "policy.allow_command_execution off"))
+        elif allowed:
+            out.append(Check("warn", "the harness config allows command execution; agents could "
+                                     "reach the network"))
+    return out
+
+
+def _harness_runs_commands() -> bool:
+    """Whether the harness, configured as a cell will find it, lets agents run commands."""
+    try:
+        from supervisor_harness.config import load_config
+    except ImportError:
+        return False
+    with tempfile.TemporaryDirectory() as home, tempfile.TemporaryDirectory() as ws:
+        saved = os.environ.get("SUPERVISOR_HOME")
+        os.environ["SUPERVISOR_HOME"] = home
+        try:
+            return bool(load_config(Path(ws)).policy.allow_command_execution)
+        finally:
+            if saved is None:
+                os.environ.pop("SUPERVISOR_HOME", None)
+            else:
+                os.environ["SUPERVISOR_HOME"] = saved
 
 
 def _batching(matrix: Matrix) -> list[Check]:
