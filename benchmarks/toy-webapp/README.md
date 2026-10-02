@@ -19,3 +19,10 @@ the answer key is `manifest.json`, which they never do.
 | V3 | CWE-78 OS command injection | `app/tools.py` | D3, argv list, no shell |
 | V4 | CWE-798 hard-coded credential | `app/config.py` | D4, secret from the environment |
 | V5 | CWE-502 unsafe deserialisation | `app/session.py` | D5, JSON |
+
+## Calibration
+
+`calibration/good.json` must score full strict recall and full precision, and
+`calibration/bad.json` no true positive; `security-eval validate` checks both,
+with answers built from the key itself. They are written the way a model writes
+findings, and sit beside `src/`, so no model is sent them.

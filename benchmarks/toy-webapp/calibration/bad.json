@@ -1,0 +1,145 @@
+[
+  {
+    "title": "SQL injection in find_user_by_email",
+    "cwe": "CWE-89",
+    "location": {
+      "path": "app/db.py",
+      "start_line": 16,
+      "end_line": 17
+    },
+    "severity": "high",
+    "confidence": 0.8,
+    "detail": "",
+    "evidence": [
+      "`query = \"SELECT id, username, email FROM users WHERE email = ?\"`"
+    ],
+    "recommendation": "",
+    "triage": null,
+    "source": "calibration",
+    "id": "",
+    "location_source": "stated",
+    "triage_reason": ""
+  },
+  {
+    "title": "Command injection in traceroute",
+    "cwe": "CWE-78",
+    "location": {
+      "path": "app/tools.py",
+      "start_line": 12,
+      "end_line": 12
+    },
+    "severity": "high",
+    "confidence": 0.8,
+    "detail": "",
+    "evidence": [
+      "`subprocess.run([\"traceroute\", \"--\", host], capture_output=True, text=True)`"
+    ],
+    "recommendation": "",
+    "triage": null,
+    "source": "calibration",
+    "id": "",
+    "location_source": "stated",
+    "triage_reason": ""
+  },
+  {
+    "title": "Path traversal reading avatars",
+    "cwe": "CWE-22",
+    "location": {
+      "path": "app/files.py",
+      "start_line": 16,
+      "end_line": 19
+    },
+    "severity": "high",
+    "confidence": 0.8,
+    "detail": "",
+    "evidence": [
+      "`path = (base / name).resolve()`"
+    ],
+    "recommendation": "",
+    "triage": null,
+    "source": "calibration",
+    "id": "",
+    "location_source": "stated",
+    "triage_reason": ""
+  },
+  {
+    "title": "Secret in configuration",
+    "cwe": "CWE-798",
+    "location": {
+      "path": "app/config.py",
+      "start_line": 11,
+      "end_line": 11
+    },
+    "severity": "high",
+    "confidence": 0.8,
+    "detail": "",
+    "evidence": [
+      "`SESSION_SECRET = os.environ[\"APP_SESSION_SECRET\"]`"
+    ],
+    "recommendation": "",
+    "triage": null,
+    "source": "calibration",
+    "id": "",
+    "location_source": "stated",
+    "triage_reason": ""
+  },
+  {
+    "title": "Unsafe deserialisation of the theme cookie",
+    "cwe": "CWE-502",
+    "location": {
+      "path": "app/session.py",
+      "start_line": 13,
+      "end_line": 13
+    },
+    "severity": "high",
+    "confidence": 0.8,
+    "detail": "",
+    "evidence": [
+      "`return json.loads(base64.b64decode(cookie))`"
+    ],
+    "recommendation": "",
+    "triage": null,
+    "source": "calibration",
+    "id": "",
+    "location_source": "stated",
+    "triage_reason": ""
+  },
+  {
+    "title": "SQL injection in the user model",
+    "cwe": "CWE-89",
+    "location": {
+      "path": "app/models.py",
+      "start_line": 11,
+      "end_line": 12
+    },
+    "severity": "high",
+    "confidence": 0.8,
+    "detail": "",
+    "evidence": [
+      "`query = f\"SELECT * FROM users WHERE username = '{username}'\"`"
+    ],
+    "recommendation": "",
+    "triage": null,
+    "source": "calibration",
+    "id": "",
+    "location_source": "stated",
+    "triage_reason": ""
+  },
+  {
+    "title": "Debug mode may be enabled",
+    "cwe": "CWE-489",
+    "location": null,
+    "severity": "high",
+    "confidence": 0.8,
+    "detail": "",
+    "evidence": [
+      "DEBUG flag in settings"
+    ],
+    "recommendation": "",
+    "triage": null,
+    "source": "calibration",
+    "id": "",
+    "location_source": "",
+    "triage_reason": ""
+  }
+]

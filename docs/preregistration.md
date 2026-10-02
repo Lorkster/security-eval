@@ -73,6 +73,11 @@ budget runs out, the core comparison is what gets reported, per the cell order).
 
 ## Analysis plan
 
+The report also shows, beside the scores, consistency across repeats, whether a
+finding's quoted code is where it says, and whether a miss was in a file the
+condition read (`src/security_eval/checks.py`). None of them changes a score.
+They are exploratory unless named here as primary.
+
 - How repeats are summarised (median and range, not mean alone): ___
 - Comparisons and how uncertainty is shown: ___
 - What would count as "no difference": ___

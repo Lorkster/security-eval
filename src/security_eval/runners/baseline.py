@@ -111,6 +111,10 @@ class BaselineRunner:
             )
         return RunResult(Outcome.OK, findings, answer.usage, seconds, detail=detail, extra=extra)
 
+    def files_sent(self, target: Target) -> list[str]:
+        """Every file this condition puts in front of the model: all of it, whole."""
+        return source_files(target.root)[0]
+
     async def _complete(self, route: str, prompt: str, workdir: Path,
                         params: dict[str, Any]) -> Answer:
         return await harness_complete(route=route, system=SYSTEM, user=prompt,
@@ -207,9 +211,9 @@ class Answer:
     refusal: str | None = None     # the category, "" if none given; None if not refused
 
 
-def pack(root: Path) -> tuple[str, list[str]]:
-    """Every source file under ``root``, with a path header and line numbers."""
-    parts: list[str] = []
+def source_files(root: Path) -> tuple[list[str], list[str]]:
+    """The source files under ``root``, and the files skipped as not source; both relative."""
+    sent: list[str] = []
     skipped: list[str] = []
     for path in sorted(p for p in root.rglob("*") if p.is_file()):
         rel = path.relative_to(root).as_posix()
@@ -218,7 +222,16 @@ def pack(root: Path) -> tuple[str, list[str]]:
         if path.suffix.lower() not in SOURCE_SUFFIXES:
             skipped.append(rel)
             continue
-        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+        sent.append(rel)
+    return sent, skipped
+
+
+def pack(root: Path) -> tuple[str, list[str]]:
+    """Every source file under ``root``, with a path header and line numbers."""
+    parts: list[str] = []
+    sent, skipped = source_files(root)
+    for rel in sent:
+        lines = (root / rel).read_text(encoding="utf-8", errors="replace").splitlines()
         numbered = "\n".join(f"{n:>5}  {line}" for n, line in enumerate(lines, 1))
         parts.append(f"=== {rel} ===\n{numbered}")
     return "\n\n".join(parts), skipped

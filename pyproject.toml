@@ -20,7 +20,7 @@ dependencies = []
 # docs/proposal.md section 3). A moving branch is not a dependency an evaluation
 # can be reproduced against. Move the pin deliberately, and record it in the
 # pre-registration: a harness change mid-study changes one of the conditions.
-harness = ["supervisor-harness @ git+https://github.com/Lorkster/supervisor-harness@163a9656ff36f6c2aa0c58f680f27ae90167f246"]
+harness = ["supervisor-harness @ git+https://github.com/Lorkster/supervisor-harness@bb7cbcb613d443b44ac119ecef0446eaf3990864"]
 # The Message Batches API (half price, Anthropic's own API only). Optional:
 # nothing imports the SDK unless a matrix sets "batch": true.
 batch = ["anthropic>=0.40"]

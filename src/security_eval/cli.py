@@ -20,7 +20,7 @@ from .runners.base import Runner
 from .runners.fake import FakeFixRunner, FakeRunner, FakeTriageRunner
 from .sarif import to_sarif
 from .scanners import ScanError, run_scan, scanner_findings
-from .scoring import score
+from .scoring import calibrate, score
 
 
 def _runners(fake: bool, scanner: str = "bandit") -> dict[str, Runner]:
@@ -47,8 +47,15 @@ def cmd_validate(args: argparse.Namespace) -> int:
             print(f"FAIL {exc}")
             status = 1
             continue
+        problems = calibrate(target)
+        for problem in problems:
+            print(f"FAIL {target.id}: scorer calibration: {problem}")
+        if problems:
+            status = 1
+            continue
         print(f"ok   {target.id}: {len(target.vulnerabilities)} vulnerabilities, "
-              f"{len(target.decoys)} decoys, public={target.public}")
+              f"{len(target.decoys)} decoys, public={target.public}"
+              + ("" if target.open else ", scorer calibrated"))
     return status
 
 

@@ -16,6 +16,7 @@ noisy, not wrong.
 
 from __future__ import annotations
 
+import json
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
@@ -189,3 +190,101 @@ def score_triage(predicted: list[Verdict | None], labels: list[bool]) -> TriageS
         elif (verdict is Verdict.TRUE_POSITIVE) == real:
             correct += 1
     return TriageScore(len(labels), correct, needs_info, confusion)
+
+
+# -- calibration: does the scorer score known answers as it should? ---------------
+
+#: Beside a manifest: hand-written answers with a known score, in the shape of a
+#: cell's findings.json. ``good.json`` must score full recall (strict) and full
+#: precision; ``bad.json`` must score no true positive at all.
+CALIBRATION_DIR = "calibration"
+
+
+def calibrate(target: Target, tolerance: int = DEFAULT_TOLERANCE) -> list[str]:
+    """What is wrong with scoring ``target``, found by scoring answers whose score is known.
+
+    Results are only as trustworthy as the scorer that produced them, and a
+    scorer can be wrong for one benchmark only: a decoy placed exactly on a
+    vulnerability's lines, an ``also`` location that matches a different
+    issue, a CWE list that excludes the CWE a correct answer gives. Each is a
+    case where a perfect answer would not score perfectly, or a wrong one
+    would score, and none shows in the numbers. So both are tried first:
+    answers built from the key itself, then any hand-written ones beside it.
+    """
+    if target.open:
+        return []
+    out: list[str] = []
+
+    def at(loc: Location, cwe: str | None, title: str = "calibration") -> SecurityFinding:
+        return SecurityFinding(title=title, cwe=cwe, location=loc, confidence=0.9,
+                               location_source="stated")
+
+    perfect = [at(v.location, v.cwe) for v in target.vulnerabilities]
+    s = score(perfect, target, tolerance)
+    if s.tp_strict != len(target.vulnerabilities) or s.false_positives or s.duplicates:
+        out.append(f"the answer key itself scores {s.tp_strict}/{len(target.vulnerabilities)} "
+                   f"strict, {s.false_positives} false positive(s), {s.duplicates} duplicate(s); "
+                   "a vulnerability's lines may overlap a decoy or another vulnerability")
+    twice = score(perfect + perfect, target, tolerance)
+    if twice.duplicates != len(target.vulnerabilities) or twice.false_positives:
+        out.append(f"the key reported twice gives {twice.duplicates} duplicate(s) and "
+                   f"{twice.false_positives} false positive(s), not "
+                   f"{len(target.vulnerabilities)} and 0")
+
+    for v in target.vulnerabilities:
+        for loc in v.also:
+            got = score([at(loc, v.cwe)], target, tolerance)
+            if [m.issue_id for m in got.matches] != [v.id]:
+                out.append(f"{v.id}: its also-location {loc.path}:{loc.start_line} does not "
+                           f"match {v.id} alone")
+        for cwe in v.also_cwes:
+            got = score([at(v.location, cwe)], target, tolerance)
+            if got.tp_strict != 1:
+                out.append(f"{v.id}: the alternative {cwe} is not accepted as correct")
+        wrong = score([at(v.location, "CWE-0")], target, tolerance)
+        if wrong.tp_loose != 1 or wrong.tp_strict != 0:
+            out.append(f"{v.id}: the right place with the wrong CWE scores "
+                       f"{wrong.tp_loose} loose / {wrong.tp_strict} strict, not 1 / 0")
+
+    for d in target.decoys:
+        got = score([at(d.location, None)], target, tolerance)
+        if got.tp_loose or got.decoy_hits != 1:
+            out.append(f"{d.id}: a finding exactly on the decoy scores as "
+                       + (f"a true positive ({got.matches[0].issue_id})" if got.tp_loose
+                          else "something other than a decoy hit"))
+
+    nowhere = [at(Location("no/such/calibration_file.py", 1, 1), None),
+               SecurityFinding(title="no place named", confidence=0.9)]
+    got = score(nowhere, target, tolerance)
+    if got.tp_loose or got.false_positives != 1 or got.unanchored != 1:
+        out.append("a finding in a file that does not exist, or with no location, scored "
+                   "other than one false positive and one unanchored")
+
+    out.extend(_calibration_files(target, tolerance))
+    return out
+
+
+def _calibration_files(target: Target, tolerance: int) -> list[str]:
+    if target.manifest_path is None:
+        return []
+    folder = target.manifest_path.parent / CALIBRATION_DIR
+    out: list[str] = []
+    for name in ("good", "bad"):
+        file = folder / f"{name}.json"
+        if not file.is_file():
+            continue
+        try:
+            findings = [SecurityFinding.from_dict(f)
+                        for f in json.loads(file.read_text(encoding="utf-8"))]
+        except (OSError, ValueError, TypeError, KeyError) as exc:
+            out.append(f"{CALIBRATION_DIR}/{name}.json: unreadable ({exc})")
+            continue
+        s = score(findings, target, tolerance)
+        if name == "good" and (s.recall(strict=True) != 1.0 or s.precision() != 1.0):
+            out.append(f"{CALIBRATION_DIR}/good.json scores strict recall "
+                       f"{s.recall(strict=True):.2f} and precision {s.precision():.2f}, "
+                       f"not 1.00 and 1.00 (missed: {', '.join(s.missed) or 'none'})")
+        if name == "bad" and s.tp_loose:
+            out.append(f"{CALIBRATION_DIR}/bad.json scores {s.tp_loose} true positive(s) "
+                       f"({', '.join(m.issue_id for m in s.matches)}), not 0")
+    return out

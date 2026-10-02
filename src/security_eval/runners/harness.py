@@ -134,8 +134,10 @@ class HarnessRunner:
         else:
             outcome = Outcome.OK
         summary = response.get("ledger") or response.get("message", "")
+        read = files_read(events.get("events", []))
         return RunResult(
             outcome, findings, usage, seconds,
+            artifacts={} if read is None else {"coverage": {"files_read": read}},
             detail=f"{note}run {run_id}: {summary}"[:500],
             extra={
                 "run_id": run_id,
@@ -287,6 +289,25 @@ def usage_from_events(events: list[dict[str, Any]]) -> Usage:
                 int(raw.get("cache_read_tokens") or 0), int(raw.get("cache_write_tokens") or 0),
             )
     return total
+
+
+def files_read(events: list[dict[str, Any]]) -> list[str] | None:
+    """Every file any agent opened, as the harness measured it; ``None`` if it did not.
+
+    ``files_read`` on a recorded turn is measured by the harness's tool loop,
+    not reported by the agent. A harness from before it was measured has no
+    such field on any turn, and its coverage is unknown -- not zero.
+    """
+    seen: set[str] = set()
+    measured = False
+    for event in events:
+        if event.get("type") != "turn_recorded":
+            continue
+        turn = (event.get("payload") or {}).get("turn") or {}
+        if "files_read" in turn:
+            measured = True
+            seen.update(str(p) for p in turn.get("files_read") or [])
+    return sorted(seen) if measured else None
 
 
 def stop_reasons(events: list[dict[str, Any]]) -> list[str]:

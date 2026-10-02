@@ -1,0 +1,128 @@
+[
+  {
+    "title": "ORDER BY taken from the request",
+    "cwe": "CWE-89",
+    "location": {
+      "path": "notes/handlers.py",
+      "start_line": 7,
+      "end_line": 8
+    },
+    "severity": "high",
+    "confidence": 0.8,
+    "detail": "",
+    "evidence": [
+      "`order = request.args.get(\"sort\", \"created\")`"
+    ],
+    "recommendation": "",
+    "triage": null,
+    "source": "calibration",
+    "id": "",
+    "location_source": "stated",
+    "triage_reason": ""
+  },
+  {
+    "title": "Passwords hashed with MD5",
+    "cwe": "CWE-327",
+    "location": {
+      "path": "notes/auth.py",
+      "start_line": 12,
+      "end_line": 12
+    },
+    "severity": "high",
+    "confidence": 0.8,
+    "detail": "",
+    "evidence": [
+      "`return hashlib.md5((salt + password).encode(\"utf-8\")).hexdigest()`"
+    ],
+    "recommendation": "",
+    "triage": null,
+    "source": "calibration",
+    "id": "",
+    "location_source": "stated",
+    "triage_reason": ""
+  },
+  {
+    "title": "Timing leak comparing the service token",
+    "cwe": "CWE-208",
+    "location": {
+      "path": "notes/auth.py",
+      "start_line": 15,
+      "end_line": 16
+    },
+    "severity": "high",
+    "confidence": 0.8,
+    "detail": "",
+    "evidence": [
+      "`return presented == SERVICE_TOKEN`"
+    ],
+    "recommendation": "",
+    "triage": null,
+    "source": "calibration",
+    "id": "",
+    "location_source": "stated",
+    "triage_reason": ""
+  },
+  {
+    "title": "Any note readable by id",
+    "cwe": "CWE-639",
+    "location": {
+      "path": "notes/handlers.py",
+      "start_line": 17,
+      "end_line": 21
+    },
+    "severity": "high",
+    "confidence": 0.8,
+    "detail": "",
+    "evidence": [
+      "`note = db.get_note(conn, note_id)` with no owner check"
+    ],
+    "recommendation": "",
+    "triage": null,
+    "source": "calibration",
+    "id": "",
+    "location_source": "stated",
+    "triage_reason": ""
+  },
+  {
+    "title": "Server-side request forgery in link preview",
+    "cwe": "CWE-918",
+    "location": {
+      "path": "notes/fetch.py",
+      "start_line": 8,
+      "end_line": 10
+    },
+    "severity": "high",
+    "confidence": 0.8,
+    "detail": "",
+    "evidence": [
+      "`with urllib.request.urlopen(url, timeout=5) as resp:`"
+    ],
+    "recommendation": "",
+    "triage": null,
+    "source": "calibration",
+    "id": "",
+    "location_source": "stated",
+    "triage_reason": ""
+  },
+  {
+    "title": "Stored XSS in the note title",
+    "cwe": "CWE-79",
+    "location": {
+      "path": "notes/render.py",
+      "start_line": 8,
+      "end_line": 10
+    },
+    "severity": "high",
+    "confidence": 0.8,
+    "detail": "",
+    "evidence": [
+      "`return f\"<h1>{title}</h1><article>{body}</article>\"`"
+    ],
+    "recommendation": "",
+    "triage": null,
+    "source": "calibration",
+    "id": "",
+    "location_source": "stated",
+    "triage_reason": ""
+  }
+]

@@ -26,3 +26,10 @@ test.
 
 As with every target: nothing under `src/` may hint at the answers. It still
 needs a second person's review before it counts toward results.
+
+## Calibration
+
+`calibration/good.json` must score full strict recall and full precision, and
+`calibration/bad.json` no true positive; `security-eval validate` checks both,
+with answers built from the key itself. They are written the way a model writes
+findings, and sit beside `src/`, so no model is sent them.
