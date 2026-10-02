@@ -165,6 +165,39 @@ def test_prose_is_not_mistaken_for_a_quote() -> None:
         == ["x = eval(request.args['q'])"]
 
 
+@pytest.mark.parametrize(("evidence", "fragments"), [
+    # From the 18-file local run: evidence that names a place, then talks about it.
+    ("tools.py:672-696 \u2014 run_command implementation with allow-list and metacharacter "
+     "refusal but no OS-level isolation", []),
+    ("config.py:111 (scope_envelope_forbidden field)", []),
+    ("mcp_server.py - no authentication middleware or rate limiting visible in the server", []),
+    ("tree_wide_git guard (prevents git state changes but not file overwrites)", []),
+    # ... and evidence that names a place, then quotes it.
+    ("src/pkg/tools.py:462: regex = re.compile(pattern, re.IGNORECASE)",
+     ["regex = re.compile(pattern, re.IGNORECASE)"]),
+    ("app\\files.py:10: path = os.path.join(UPLOADS, name)",
+     ["path = os.path.join(UPLOADS, name)"]),
+    # A quote the model shortened: both sides are still quotes.
+    ("httpx.AsyncClient(base_url=self.base_url, headers={...})",
+     ["httpx.AsyncClient(base_url=self.base_url, headers={"]),
+    # A call is not a filename: nothing is taken off the front of this one.
+    ("path = os.path.join(UPLOADS, name)", ["path = os.path.join(UPLOADS, name)"]),
+])
+def test_a_named_place_is_not_a_quote(evidence: str, fragments: list[str]) -> None:
+    assert quoted_fragments([evidence]) == fragments
+
+
+def test_a_reflowed_quote_is_still_a_quote(tmp_path: Path) -> None:
+    """A statement that spans lines in the file, quoted on one line, as models do."""
+    (tmp_path / "client.py").write_text(
+        "class C:\n    def http(self):\n        return httpx.AsyncClient(\n"
+        "            base_url=self.base_url,\n            headers={'a': 'b'}\n        )\n",
+        encoding="utf-8")
+    finding = at("client.py", 3, 6,
+                 "`httpx.AsyncClient(base_url=self.base_url, headers={'a': 'b'})`")
+    assert check_evidence(finding, tmp_path) == "quoted_at_location"
+
+
 # -- which code -------------------------------------------------------------------
 
 

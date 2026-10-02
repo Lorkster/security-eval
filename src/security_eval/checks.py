@@ -72,11 +72,26 @@ _BACKTICKED = re.compile(r"`([^`\n]{4,})`")
 _FENCE = re.compile(r"```[\w+-]*\n?(.*?)```", re.DOTALL)
 # "12:", "12 |", "  12  " -- a line number a model copied along with the line.
 _LINE_PREFIX = re.compile(r"^\s*(?:L?\d+\s*[:|]\s*|\d+\s{2,})")
+# "tools.py:672-696 -- ", "src/a.py:12: ": a place named before what is said
+# about it. Taken off first: a location is not a quote, and what follows it is
+# judged on its own -- code if it is code, prose if it is prose.
+_PATH = r"`?(?:[A-Za-z]:)?[\w./\\-]+\.[A-Za-z0-9]{1,8}"
+_LOCATION_PREFIX = re.compile(
+    # With a line number, any separator; without one ("server.py - no auth"),
+    # only a spaced dash, so ``os.path.join(`` is never taken for a filename.
+    rf"^\s*(?:{_PATH}:\d+(?:[-:]\d+)?`?\s*(?:[:|(\u2013\u2014-]+\s*)?"
+    rf"|{_PATH}`?\s+[\u2013\u2014-]+\s+)"
+)
+# A model shortening a quote: what is on either side of it is still a quote.
+_ELLIPSIS = re.compile(r"\.\.\.|\u2026")
 # An identifier followed by a call, an index, an assignment or an attribute.
 _CODE_SHAPE = re.compile(r"[A-Za-z_][\w]*\s*(?:\(|\[|=[^=]|\.[A-Za-z_])")
+# "not", "or" and "but" are Python too, but three of these in one line is prose.
 _PROSE_WORDS = frozenset({"the", "is", "a", "an", "of", "to", "which", "this", "that",
                           "uses", "with", "without", "be", "are", "was", "it", "allows",
-                          "because", "can", "could", "user", "attacker"})
+                          "because", "can", "could", "user", "attacker", "but", "not",
+                          "no", "or", "prevents", "visible", "missing", "lacks", "does",
+                          "only"})
 #: Shorter fragments match too much by accident (``id = x`` is everywhere).
 MIN_FRAGMENT_CHARS = 10
 
@@ -85,7 +100,17 @@ def _squash(text: str) -> str:
     return " ".join(text.split())
 
 
+def _bare(text: str) -> str:
+    return "".join(text.split())
+
+
+def _strip(line: str) -> str:
+    """A line without the place it names and the line number it copied."""
+    return _LINE_PREFIX.sub("", _LOCATION_PREFIX.sub("", line))
+
+
 def _looks_like_code(line: str) -> bool:
+    line = _strip(line)
     if not _CODE_SHAPE.search(line):
         return False
     words = re.findall(r"[A-Za-z]+", line.lower())
@@ -110,9 +135,10 @@ def quoted_fragments(evidence: Iterable[str]) -> list[str]:
         if not quoted:
             quoted = [line for line in text.splitlines() if _looks_like_code(line)]
         for line in quoted:
-            fragment = _squash(_LINE_PREFIX.sub("", line))
-            if len(fragment) >= MIN_FRAGMENT_CHARS and fragment not in out:
-                out.append(fragment)
+            for piece in _ELLIPSIS.split(_strip(line)):
+                fragment = _squash(piece)
+                if len(fragment) >= MIN_FRAGMENT_CHARS and fragment not in out:
+                    out.append(fragment)
     return out
 
 
@@ -136,11 +162,14 @@ def check_evidence(finding: SecurityFinding, root: Path, tolerance: int = 3) -> 
         return "nothing_quoted"
     lo = max(0, loc.start_line - 1 - tolerance)
     hi = min(len(lines), loc.end_line + tolerance)
-    near = _squash("\n".join(lines[lo:hi]))
-    whole = _squash("\n".join(lines))
-    if any(f in near for f in fragments):
+    # Compared with every space taken out: a model quoting a statement that
+    # spans three lines writes it on one, and a reflowed quote is not a made-up one.
+    near = _bare("\n".join(lines[lo:hi]))
+    whole = _bare("\n".join(lines))
+    bare = [_bare(f) for f in fragments]
+    if any(f in near for f in bare):
         return "quoted_at_location"
-    if any(f in whole for f in fragments):
+    if any(f in whole for f in bare):
         return "quoted_elsewhere"
     return "quote_not_in_file"
 
