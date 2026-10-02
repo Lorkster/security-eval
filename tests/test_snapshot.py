@@ -68,3 +68,19 @@ def test_the_command_reports_size_and_where_the_code_may_go(
     assert main(["import-code", str(repo), "pkg/b.py", "--dest", str(tmp_path / "u"),
                  "--allow", "any"]) == 0
     assert load_target(tmp_path / "u" / "manifest.json").allowed_providers == []
+
+
+def test_modules_the_slice_imports_but_leaves_out_are_named(repo: Path, tmp_path: Path) -> None:
+    from security_eval.snapshot import missing_imports
+
+    (repo / "pkg" / "a.py").write_text(
+        "from .b import y\nfrom . import c\nfrom ..top import z\nimport os\n", encoding="utf-8")
+    (repo / "pkg" / "c.py").write_text("", encoding="utf-8")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-q", "-m", "imports")
+
+    alone = load_target(import_code(repo, ["pkg/a.py"], tmp_path / "one"))
+    assert missing_imports(alone.root) == ["pkg/b.py", "pkg/c.py", "top.py"]
+
+    with_b = load_target(import_code(repo, ["pkg/a.py", "pkg/b.py", "pkg/c.py"], tmp_path / "two"))
+    assert missing_imports(with_b.root) == ["top.py"], "os is not the project's"

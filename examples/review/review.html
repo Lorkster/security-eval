@@ -1,0 +1,257 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Review: 11 candidate(s)</title>
+<style>
+:root {
+  --bg: #f7f7f5; --card: #ffffff; --text: #1d1d1b; --muted: #6b6b66; --line: #e2e1dc;
+  --code-bg: #f1f0ec; --mark: #fff1b8; --accent: #2f5fd0;
+  --tp: #1f7a3a; --fp: #a33a2a; --unsure: #8a6a00;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #161615; --card: #1f1f1d; --text: #ecebe6; --muted: #a09f98; --line: #34332f;
+    --code-bg: #262623; --mark: #4a4120; --accent: #8fb0ff;
+    --tp: #6fcf8a; --fp: #ff8f7a; --unsure: #e6c35c;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text);
+  font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+main { max-width: 980px; margin: 0 auto; padding: 24px 16px 96px; }
+h1 { font-size: 22px; margin: 0 0 4px; }
+.sub { color: var(--muted); margin: 0 0 20px; }
+section.box { background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+  padding: 16px; margin-bottom: 16px; }
+section.box h2 { font-size: 16px; margin: 0 0 10px; }
+ol.steps { margin: 0; padding-left: 20px; }
+.help { display: flex; gap: 10px; align-items: flex-start; margin: 8px 0; }
+.tag { display: inline-block; min-width: 58px; text-align: center; font-weight: 600;
+  border-radius: 6px; padding: 1px 8px; border: 1px solid currentColor; }
+.tag.tp { color: var(--tp); } .tag.fp { color: var(--fp); } .tag.unsure { color: var(--unsure); }
+.bar { position: sticky; top: 0; z-index: 2; background: var(--bg); padding: 10px 0;
+  display: flex; flex-wrap: wrap; gap: 12px; align-items: center;
+  border-bottom: 1px solid var(--line); margin-bottom: 16px; }
+#roles { display: flex; flex-wrap: wrap; gap: 4px 12px; }
+.bar label { white-space: nowrap; }
+main { overflow-wrap: anywhere; }
+button { font: inherit; border: 1px solid var(--line); background: var(--card); color: var(--text);
+  border-radius: 8px; padding: 6px 12px; cursor: pointer; }
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+  padding: 16px; margin-bottom: 16px; }
+.card.done { border-left: 4px solid var(--accent); }
+.card h3 { font-size: 15px; margin: 0 0 6px; display: flex; flex-wrap: wrap; gap: 8px; }
+.loc { font-family: ui-monospace, Consolas, monospace; font-size: 13px; color: var(--muted);
+  overflow-wrap: anywhere; }
+.reports { margin: 8px 0; padding-left: 18px; }
+.reports li { margin-bottom: 6px; }
+.reports .detail { color: var(--muted); font-size: 14px; }
+pre { background: var(--code-bg); border-radius: 8px; padding: 8px 0; overflow-x: auto;
+  font: 12.5px/1.45 ui-monospace, Consolas, monospace; margin: 8px 0; }
+pre .ln { display: block; padding: 0 12px; white-space: pre; }
+pre .ln.hit { background: var(--mark); }
+pre .num { display: inline-block; width: 4.5em; color: var(--muted); user-select: none; }
+.choices { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0 6px; }
+.choices label { border: 1px solid var(--line); border-radius: 8px; padding: 4px 12px;
+  cursor: pointer; }
+.choices input { margin-right: 6px; }
+textarea { width: 100%; min-height: 54px; font: inherit; color: var(--text);
+  background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; }
+.muted { color: var(--muted); }
+.hidden { display: none; }
+</style>
+</head>
+<body>
+<main>
+<h1>Review: 11 candidate(s)</h1>
+<p class="sub">Blind review: nothing here says which model, condition or scanner reported a
+candidate, and the order is shuffled.</p>
+
+<section class="box">
+<h2>How to review</h2>
+<ol class="steps">
+<li>Choose who you are below. Each reviewer works on their own, and nobody opens
+<code>key.json</code> until every reviewer has finished.</li>
+<li>For each candidate, read what was reported and the code (flagged lines are marked).
+Open the file in your editor if you need more context. Then pick a verdict.</li>
+<li>Your answers are kept in this browser as you go. When done, press
+<strong>Download my verdicts</strong> and hand the file to whoever runs
+<code>security-eval adjudicate import</code>.</li>
+<li>Judge whether the issue is real, not whether the report is well written. Right
+place but wrong CWE is still tp if the issue described is real; note the right CWE.</li>
+</ol>
+</section>
+
+<section class="box">
+<h2>What the verdicts mean</h2>
+<div class='help'><span class='tag tp'>tp</span><div><strong>True positive.</strong> A real vulnerability in this code. You can point to the line, the untrusted input that reaches it, and what an attacker would gain. Ideally you could write a unit test that fails because of it. Never write an exploit.</div></div><div class='help'><span class='tag fp'>fp</span><div><strong>False positive.</strong> Not a vulnerability here: the input is not attacker-controlled, it is already validated, or the code is safe as used (MD5 for a cache key, say). A real bug that is not a security issue is also fp; say so in the notes.</div></div><div class='help'><span class='tag unsure'>unsure</span><div><strong>Unsure.</strong> You cannot decide from the code with reasonable effort, for example because it depends on how the code is deployed. Say in the notes what would settle it.</div></div>
+</section>
+
+<div class="bar">
+  <span>I am:</span>
+  <span id="roles"></span>
+  <span id="progress" class="muted"></span>
+  <label><input type="checkbox" id="only-open"> show only unjudged</label>
+  <button class="primary" id="download">Download my verdicts</button>
+</div>
+<p id="pick-role" class="muted">Choose who you are to start.</p>
+<div id="cards"></div>
+</main>
+
+<script type="application/json" id="data">{"items": [{"id": "C0001", "target": "sh-local", "location": "supervisor_harness/core/tools.py:392-406", "cwe": "CWE-367", "start": 392, "end": 406, "first": 388, "lines": ["        whether it is still underneath the workspace.", "        \"\"\"", "        root = self.workspace.resolve()", "        out: list[Path] = []", "        for path in self.workspace.rglob(\"*\"):", "            if path.is_symlink():", "                continue", "            if not path.is_file():", "                continue", "            if any(part in SKIP_DIRS for part in path.parts):", "                continue", "            if path.suffix.lower() in BINARY_SUFFIXES:", "                continue", "            try:", "                if root not in path.resolve().parents:", "                    continue", "            except OSError:", "                continue", "            out.append(path)", "        return out", "", "    def _rel(self, path: Path) -> str:", "        return path.relative_to(self.workspace).as_posix()"], "reports": [{"title": "Symlink resolution in _walk may be bypassed on race condition", "detail": "The _walk method (tools.py:372-407) checks path.is_symlink() and then path.resolve().parents to ensure the file is within the workspace. Between the is_symlink() check and the resolve() call, a symlink could be swapped for a regular file (TOCTOU). However, this requires an attacker with filesystem access to the workspace directory during the walk, which is outside the threat model of this local tool.", "evidence": "tools.py:393: if path.is_symlink(): continue | tools.py:402: if root not in path.resolve().parents: continue", "recommendation": "Use os.open with O_NOFOLLOW or equivalent to atomically check and open the file, eliminating the TOCTOU window. In practice, this is a theoretical concern for a local tool."}]}, {"id": "C0002", "target": "sh-local", "location": "supervisor_harness/core/tools.py:71-71", "cwe": "", "start": 71, "end": 71, "first": 67, "lines": ["", "import fnmatch", "import re", "import shutil", "import subprocess", "from dataclasses import dataclass", "from pathlib import Path", "from typing import Any", ""], "reports": [{"title": "Consider possible security implications associated with the subprocess module.", "detail": "", "evidence": "", "recommendation": ""}]}, {"id": "C0003", "target": "sh-local", "location": "supervisor_harness/config.py:437-452", "cwe": "CWE-400, CWE-502", "start": 437, "end": 452, "first": 433, "lines": ["    merged = to_jsonable(default_config())", "    sources: list[str] = []", "    rejected: list[str] = []", "", "    for path, trusted in candidate_paths(ws):", "        if not path.exists():", "            continue", "        try:", "            overlay = json.loads(path.read_text(encoding=\"utf-8\"))", "        except json.JSONDecodeError as exc:", "            raise ValueError(f\"invalid JSON in {path}: {exc}\") from exc", "        if not isinstance(overlay, dict):", "            continue", "        if not trusted:", "            overlay, dropped = _strip_untrusted(overlay)", "            rejected.extend(f\"{setting} (from {path})\" for setting in dropped)", "        overlay, dropped = _check_roles(overlay, trusted, set(merged.get(\"roles\") or {}))", "        rejected.extend(f\"{setting} (from {path})\" for setting in dropped)", "        merged = _deep_merge(merged, overlay)", "        sources.append(str(path))", "", "    config = from_jsonable(merged, HarnessConfig)", "    config.sources = sources", "    config.rejected_settings = rejected"], "reports": [{"title": "Insecure Deserialization of Configuration Files", "detail": "", "evidence": "Configuration files are loaded using `json.loads(path.read_text())`. While JSON itself is safe, the subsequent `_deep_merge` and `from_jsonable` functions process arbitrary data from untrusted workspace files. If any part of the deserialization chain uses `eval`, `exec`, or unsafe object construction (not visible in this snippet but common in such patterns), it could lead to code execution. The trust boundary logic mitigates some risks, but the base loading mechanism is a potential vector if the serde module is not strictly safe.", "recommendation": "Ensure that `from_jsonable` and any related deserialization logic strictly validates types and does not execute arbitrary code or instantiate arbitrary classes based on input data. Use a strict schema validation library."}, {"title": "Config file JSON parsing without size limit", "detail": "The load_config function (config.py:426-458) reads and parses config files with json.loads(path.read_text(...)) without any size limit. A workspace-level supervisor.config.json could be arbitrarily large, causing memory exhaustion during parsing. The trust boundary strips protected settings but does not limit file size. This is a low-severity DoS vector since the attacker would need to control the workspace directory.", "evidence": "config.py:441: overlay = json.loads(path.read_text(encoding=\"utf-8\"))", "recommendation": "Add a maximum file size check before reading and parsing config files. Reject files exceeding a reasonable threshold (e.g., 1 MB)."}]}, {"id": "C0004", "target": "sh-local", "location": "supervisor_harness/core/tools.py:697-822", "cwe": "CWE-78", "start": 697, "end": 822, "first": 693, "lines": ["        # reports the timeout. Measured: a 20-second sleep under a 1-second", "        # timeout returned TimeoutExpired after 20.1 seconds, and after 1.0", "        # without the shell. An agent could hold a run open for as long as it", "        # liked while the harness reported that it had stopped it.", "        argv = shell_split(command)", "        executable = shutil.which(argv[0]) if argv else None", "        if executable is None:", "            return ToolResult(", "                \"run_command\", False,", "                f\"could not run {command!r}: {executable_name(argv[0]) if argv else command!r} \"", "                \"is not on PATH\",", "            )", "        argv[0] = executable", "", "        try:", "            completed = subprocess.run(  # noqa: S603 - tokenised, no shell, allow-listed", "                argv, shell=False, cwd=str(self.workspace),", "                capture_output=True, text=True,", "                timeout=self.policy.command_timeout_seconds,", "            )", "        except subprocess.TimeoutExpired:", "            return ToolResult(\"run_command\", False, f\"timed out: {command}\")", "        except OSError as exc:", "            return ToolResult(\"run_command\", False, f\"could not run {command!r}: {exc}\")", "", "        output = (completed.stdout + completed.stderr).strip()[-3000:]", "        return ToolResult(", "            \"run_command\", completed.returncode == 0,", "            f\"$ {command}\\nexit={completed.returncode}\\n{output}\",", "        )", "", "    # -- dispatch ----------------------------------------------------------", "", "    def call(self, name: str, args: dict[str, Any], agent: AgentSpec) -> ToolResult:", "        \"\"\"Run one requested tool, enforcing what this agent is allowed to do.\"\"\"", "        name = (name or \"\").strip()", "        writable = agent.kind.value in WRITE_KINDS", "        may_run = agent.kind.value in COMMAND_KINDS", "", "        if name == \"list_files\":", "            return self.list_files(str(args.get(\"pattern\", \"**/*\")))", "        if name == \"read_file\":", "            return self.read_file(", "                str(args.get(\"path\", \"\")),", "                int(args.get(\"start\", 1) or 1),", "                int(args.get(\"limit\", MAX_READ_LINES) or MAX_READ_LINES),", "            )", "        if name == \"search\":", "            return self.search(str(args.get(\"pattern\", \"\")), str(args.get(\"glob\", \"**/*\")))", "        if name == \"write_file\":", "            if not writable:", "                return ToolResult(", "                    \"write_file\", False,", "                    f\"a {agent.kind.value} agent may not modify files; report what \"", "                    \"should change instead\",", "                )", "            return self.write_file(", "                str(args.get(\"path\", \"\")), str(args.get(\"content\", \"\")), agent.scope", "            )", "        if name == \"run_command\":", "            if not may_run:", "                # Without this an agent forbidden from write_file could simply", "                # write files through the shell instead -- which is why a", "                # verification agent, denied writes over the code it judges, is", "                # denied the shell too.", "                return ToolResult(", "                    \"run_command\", False,", "                    f\"a {agent.kind.value} agent may not run commands; report the \"", "                    \"command that should be run, and the harness or the host runs it\",", "                )", "            return self.run_command(str(args.get(\"command\", \"\")), agent.scope)", "        return ToolResult(name or \"unknown\", False, f\"no such tool: {name!r}\")", "", "", "def available_tools(agent: AgentSpec, policy: Policy) -> list[dict[str, str]]:", "    \"\"\"The tool list to advertise in this agent's brief.\"\"\"", "    tools = [", "        {\"name\": \"list_files\", \"args\": \"pattern (glob, optional)\",", "         \"does\": \"list files in the workspace\"},", "        {\"name\": \"read_file\", \"args\": \"path, start (optional), limit (optional)\","], "reports": [{"title": "Potential Command Injection via Shell Splitting", "detail": "", "evidence": "The `run_command` method uses `shell_split(command)` to tokenize the command and then passes it to `subprocess.run` with `shell=False`. While this is safer than `shell=True`, the `shell_split` function (imported from `.dod`) must correctly handle quoting and escaping. If `shell_split` has a bug that allows injection of shell metacharacters or incorrect tokenization, it could lead to command injection. The code relies on `unquoted_metacharacter` checks, but these are heuristic and may not catch all edge cases.", "recommendation": "Audit the `shell_split` implementation in `.dod` to ensure it correctly handles all quoting and escaping scenarios. Consider using a more robust command parsing library or strictly validating the command structure before execution."}, {"title": "subprocess execution timeout may not kill child processes on Windows", "detail": "The docstring at tools.py:689-696 documents that shell=True made command_timeout_seconds ineffective on Windows because cmd /c is a separate process. The fix (shell=False) was applied, but the final subprocess.run call (after line 707) was not read. If it does not use a process group or kill the entire process tree on timeout, a check runner that spawns children could outlive the timeout.", "evidence": "tools.py:689-696: docstring explaining the Windows shell=True timeout bug and the shell=False fix", "recommendation": "Verify the subprocess.run call uses start_new_session=True (or equivalent) and kills the process group on timeout, not just the direct child."}, {"title": "subprocess call - check for execution of untrusted input.", "detail": "", "evidence": "", "recommendation": ""}]}, {"id": "C0005", "target": "sh-local", "location": "supervisor_harness/core/tools.py:447-470", "cwe": "CWE-1333", "start": 447, "end": 470, "first": 443, "lines": ["            else \"\"", "        )", "        return ToolResult(\"read_file\", True, f\"{self._rel(target)}\\n{numbered}{suffix}\")", "", "    def search(self, pattern: str, glob: str = \"**/*\") -> ToolResult:", "        try:", "            regex = re.compile(pattern, re.IGNORECASE)", "        except re.error as exc:", "            return ToolResult(\"search\", False, f\"invalid pattern: {exc}\")", "", "        hits: list[str] = []", "        for path in self._walk():", "            rel = self._rel(path)", "            if glob not in (\"\", \"**/*\") and not fnmatch.fnmatch(rel, glob):", "                continue", "            try:", "                for number, line in enumerate(", "                    path.read_text(encoding=\"utf-8\", errors=\"replace\").splitlines(), 1", "                ):", "                    if regex.search(line):", "                        hits.append(f\"{rel}:{number}: {line.strip()[:180]}\")", "                        if len(hits) >= MAX_MATCHES:", "                            break", "            except OSError:", "                continue", "            if len(hits) >= MAX_MATCHES:", "                break", "        return ToolResult(\"search\", True, \"\\n\".join(hits) or \"(no matches)\")", "", "    def write_file(self, path: str, content: str, scope: Scope | None = None) -> ToolResult:", "        target = self._resolve(path)", "        if target is None:"], "reports": [{"title": "ReDoS via agent-supplied regex in search tool", "detail": "The search tool (tools.py:447-470) compiles a regex pattern supplied by the agent and runs it against every line of every file in the workspace. A malicious or confused agent could supply a catastrophic backtracking pattern (e.g., `(a+)+$`) that would cause the regex engine to hang, consuming CPU indefinitely. The MAX_MATCHES limit (60) bounds the number of matches but not the time spent per match. This is a resource exhaustion vector within the trust model -- the agent is an LLM being supervised, not an external attacker, so severity is low.", "evidence": "tools.py:449: regex = re.compile(pattern, re.IGNORECASE) | tools.py:462: if regex.search(line):", "recommendation": "Use a regex engine with timeout support (e.g., the `regex` module's `timeout` parameter) or limit pattern complexity. Alternatively, use a simple substring match for the common case and only compile regex when explicitly requested."}, {"title": "ReDoS via search() regex pattern", "detail": "The search tool compiles a user-supplied (model-supplied) regex with re.compile(pattern, re.IGNORECASE). A pattern with nested quantifiers could cause catastrophic backtracking on a large file. The impact is bounded by MAX_MATCHES=60 and the file walk, but a single malicious pattern could stall the agent for an extended period.", "evidence": "tools.py:449: regex = re.compile(pattern, re.IGNORECASE) | tools.py:462: if regex.search(line):", "recommendation": "Use the 'regex' module or a timeout wrapper around re.search to bound backtracking time, or restrict patterns to a safe subset."}]}, {"id": "C0006", "target": "sh-local", "location": "supervisor_harness/core/tools.py:718-722", "cwe": "CWE-532", "start": 718, "end": 722, "first": 714, "lines": ["            return ToolResult(\"run_command\", False, f\"timed out: {command}\")", "        except OSError as exc:", "            return ToolResult(\"run_command\", False, f\"could not run {command!r}: {exc}\")", "", "        output = (completed.stdout + completed.stderr).strip()[-3000:]", "        return ToolResult(", "            \"run_command\", completed.returncode == 0,", "            f\"$ {command}\\nexit={completed.returncode}\\n{output}\",", "        )", "", "    # -- dispatch ----------------------------------------------------------", "", "    def call(self, name: str, args: dict[str, Any], agent: AgentSpec) -> ToolResult:"], "reports": [{"title": "Sensitive Data Exposure in Logs/Output", "detail": "", "evidence": "The `run_command` method captures stdout and stderr and includes them in the `ToolResult` output. If the executed command prints sensitive information (e.g., environment variables, API keys), this data will be exposed in the tool result, which may be logged or stored. The code does not filter or redact sensitive data from the output.", "recommendation": "Implement output filtering to redact known sensitive patterns (e.g., API keys, passwords) before returning the result. Consider logging only a summary of the command execution rather than the full output."}]}, {"id": "C0007", "target": "sh-local", "location": "supervisor_harness/core/tools.py:501-533", "cwe": "", "start": 501, "end": 533, "first": 497, "lines": ["        except OSError as exc:", "            return ToolResult(\"write_file\", False, f\"could not write {rel}: {exc}\")", "        return ToolResult(\"write_file\", True, f\"wrote {rel} ({len(content)} bytes)\")", "", "    def _path_candidates(self, tokens: list[str]) -> list[str]:", "        \"\"\"The arguments of a command that could name a file.", "", "        The rule is the inverse of the one it replaced. Asking \"does this token", "        look like a path?\" fails open on every name a shell accepts without a", "        separator or a suffix: ``rm -rf infra`` and ``cp Makefile Dockerfile``", "        both destroy real files through tokens no such test can recognise. So", "        every argument is a candidate unless it is demonstrably not a path.", "", "        The one thing still let through is a bare extensionless word that names", "        nothing in the workspace -- ``pytest`` in ``python -m pytest src/auth``", "        is a module, not a file, and fencing it would refuse every real command.", "        What such a word could name is bounded instead by the executable", "        allow-list in :meth:`_scope_refusal`: it is a path only once some program", "        creates it, and no program that creates files is reachable here.", "        \"\"\"", "        candidates: list[str] = []", "        for token in tokens[1:]:", "            if token.startswith(\"-\"):", "                # A flag names a file only in its --flag=path form.", "                _, sep, value = token.partition(\"=\")", "                if not sep or not value:", "                    continue", "                token = value", "            if not token:", "                continue", "            if \"/\" in token or \"\\\\\" in token or _FILE_SUFFIX.match(token):", "                candidates.append(token)", "                continue", "            resolved = self._resolve(token)", "            if resolved is not None and resolved.exists():", "                candidates.append(token)", "        return candidates", "", "    def _floor_command_refusal(self, command: str) -> str | None:", "        \"\"\"Why this command names a path under the floor, or ``None``.", ""], "reports": [{"title": "_path_candidates lets through bare extensionless words that may name files", "detail": "A token like 'infra' in a command is not flagged as a path candidate unless it resolves to an existing file in the workspace. The design relies on the executable allow-list to prevent this from mattering (rm, cp, mkdir are not allowed). This is a second-lock design: if the allow-list is ever loosened to include file-manipulation tools, the path-scope check would miss extensionless directory names.", "evidence": "tools.py:527-532: if '/' in token or '\\\\' in token or _FILE_SUFFIX.match(token): candidates.append(token); continue; resolved = self._resolve(token); if resolved is not None and resolved.exists(): candidates.append(token)", "recommendation": "Document this dependency explicitly. If VERIFY_EXECUTABLES is ever expanded to include tools that create/delete files, add a check that all bare-word arguments resolve within scope."}]}, {"id": "C0008", "target": "sh-local", "location": "supervisor_harness/config.py:343-371", "cwe": "", "start": 343, "end": 371, "first": 339, "lines": ["    {\"type\", \"base_url\", \"api_key\", \"api_key_env\", \"region\", \"profile\", \"params\"}", ")", "", "", "def _strip_untrusted(overlay: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:", "    \"\"\"Remove settings a workspace-level file is not allowed to set.", "", "    Returns the sanitised overlay and a list of the rejected setting paths, so", "    the user can be told what was ignored rather than silently losing it.", "    \"\"\"", "    clean = json.loads(json.dumps(overlay))  # cheap deep copy of plain JSON", "    rejected: list[str] = []", "", "    for path in PROTECTED_SETTINGS:", "        node = clean", "        for key in path[:-1]:", "            node = node.get(key) if isinstance(node, dict) else None", "            if not isinstance(node, dict):", "                break", "        if isinstance(node, dict) and path[-1] in node:", "            node.pop(path[-1])", "            rejected.append(\".\".join(path))", "", "    providers = clean.get(\"providers\")", "    if isinstance(providers, dict):", "        for name, cfg in providers.items():", "            if not isinstance(cfg, dict):", "                continue", "            for key in sorted(PROTECTED_PROVIDER_KEYS & set(cfg)):", "                cfg.pop(key)", "                rejected.append(f\"providers.{name}.{key}\")", "", "    return clean, rejected", "", "", "def _check_roles(", "    overlay: dict[str, Any], trusted: bool, defined: set[str]"], "reports": [{"title": "Trust boundary enforcement depends on _strip_untrusted being called for all workspace config files", "detail": "The PROTECTED_SETTINGS and PROTECTED_PROVIDER_KEYS lists are only effective if _strip_untrusted() is applied to every workspace-level config file during loading. The remaining ~157 lines of config.py (lines 384-540) were not read, so the actual loading path could not be verified. If any code path loads a workspace config without calling _strip_untrusted, a checked-in supervisor.config.json could enable allow_command_execution or redirect base_url.", "evidence": "config.py:343-371: def _strip_untrusted(overlay): ... removes PROTECTED_SETTINGS and PROTECTED_PROVIDER_KEYS | config.py:299-316: PROTECTED_SETTINGS includes ('policy', 'allow_command_execution') | config.py:338-340: PROTECTED_PROVIDER_KEYS includes base_url, api_key, api_key_env, params", "recommendation": "Verify that every code path that loads a workspace-level config file calls _strip_untrusted before applying the overlay. Add a test that confirms a workspace config setting allow_command_execution=true is rejected."}]}, {"id": "C0009", "target": "sh-local", "location": "supervisor_harness/core/tools.py:363-370", "cwe": "CWE-22", "start": 363, "end": 370, "first": 359, "lines": ["                \"instead of writing it there\"", "            )", "        return None", "", "    def _resolve(self, raw: str) -> Path | None:", "        \"\"\"Resolve a path inside the workspace, or ``None`` if it escapes.\"\"\"", "        try:", "            candidate = (self.workspace / raw.strip().lstrip(\"/\\\\\")).resolve()", "            candidate.relative_to(self.workspace)", "        except (ValueError, OSError):", "            return None", "        return candidate", "", "    def _walk(self) -> list[Path]:", "        \"\"\"Every readable file genuinely inside the workspace.", ""], "reports": [{"title": "Path Traversal in File Read/Write Tools", "detail": "", "evidence": "The `_resolve` method uses `Path.resolve()` which follows symbolic links. If an attacker can create a symlink within the workspace pointing outside (e.g., to `/etc/passwd` or another user's file), `read_file` and `write_file` will follow it because `candidate.relative_to(self.workspace)` succeeds after resolution. The `_walk` method correctly filters symlinks, but direct path access via `read_file`/`write_file` does not.", "recommendation": "Check if the resolved path is a symlink or if any component of the path is a symlink before allowing access. Use `os.path.realpath` and verify it stays within the workspace, or explicitly reject paths containing symlinks."}]}, {"id": "C0010", "target": "sh-local", "location": "supervisor_harness/core/tools.py:222-224", "cwe": "", "start": 222, "end": 224, "first": 218, "lines": ["            skip = False", "            continue", "        # S105 reads `token` as a credential. It is a command-line token: this", "        # function walks the argv of a command the fence is inspecting.", "        if token == \"-\":  # noqa: S105 - a shell token, not a secret", "            return \"-\"  # the program is read from standard input.", "        if token == \"--\" or not token.startswith(\"-\"):  # noqa: S105 - as above", "            return None  # the interpreter's own options have ended.", "        if token.startswith(\"--\"):", "            name = token.partition(\"=\")[0]", "            if name in long_source:"], "reports": [{"title": "Possible hardcoded password: '-'", "detail": "", "evidence": "", "recommendation": ""}, {"title": "Possible hardcoded password: '--'", "detail": "", "evidence": "", "recommendation": ""}]}, {"id": "C0011", "target": "sh-local", "location": "supervisor_harness/core/tools.py:80-80", "cwe": "", "start": 80, "end": 80, "first": 76, "lines": ["from ..config import Policy", "from ..models import AgentSpec, Scope", "from ..store.runstore import DEFAULT_DIRNAME", "from .dod import (", "    VERIFY_EXECUTABLES,", "    executable_name,", "    shell_split,", "    unquoted_metacharacter,", ")"], "reports": [{"title": "Executable allow-list (VERIFY_EXECUTABLES) definition not verifiable", "detail": "The primary gate on run_command is the VERIFY_EXECUTABLES allow-list imported from core/dod.py, which is not present in the repository file listing. Without seeing its contents, the exact set of permitted executables cannot be confirmed. If it includes interpreters or package managers (npm, npx, make), the fence's effectiveness depends entirely on the project's own build scripts being benign.", "evidence": "tools.py:80: from .dod import VERIFY_EXECUTABLES, executable_name, shell_split, unquoted_metacharacter | tools.py:628: if executable not in VERIFY_EXECUTABLES:", "recommendation": "Verify the contents of core/dod.py and confirm VERIFY_EXECUTABLES does not include general-purpose interpreters or package managers that could execute arbitrary code from project files."}]}], "sheetId": "2026-10-02T09:18:22+00:00:0", "columns": ["candidate", "target", "location", "cwe_suggested", "reviewer_a", "reviewer_b", "final", "notes"], "baseName": "sheet", "roles": [["reviewer_a", "Reviewer A"], ["reviewer_b", "Reviewer B"], ["final", "Final (resolving disagreements)"]]}</script>
+<script>
+(function () {
+  "use strict";
+  var DATA = JSON.parse(document.getElementById("data").textContent);
+  var role = "";
+  var answers = {};
+
+  function storageKey() { return "security-eval-review:" + DATA.sheetId + ":" + role; }
+  function load() {
+    try { answers = JSON.parse(localStorage.getItem(storageKey()) || "{}") || {}; }
+    catch (e) { answers = {}; }
+  }
+  function save() {
+    try { localStorage.setItem(storageKey(), JSON.stringify(answers)); }
+    catch (e) { /* kept in memory only */ }
+  }
+  function el(tag, cls, text) {
+    var node = document.createElement(tag);
+    if (cls) node.className = cls;
+    if (text !== undefined) node.textContent = text;
+    return node;
+  }
+
+  var rolesBox = document.getElementById("roles");
+  DATA.roles.forEach(function (pair) {
+    var label = el("label");
+    var input = el("input");
+    input.type = "radio"; input.name = "role"; input.value = pair[0];
+    input.addEventListener("change", function () { role = pair[0]; load(); draw(); });
+    label.appendChild(input);
+    label.appendChild(document.createTextNode(" " + pair[1] + " "));
+    rolesBox.appendChild(label);
+  });
+
+  function judged() {
+    return DATA.items.filter(function (it) {
+      return answers[it.id] && answers[it.id].verdict;
+    }).length;
+  }
+
+  function draw() {
+    var cards = document.getElementById("cards");
+    cards.textContent = "";
+    document.getElementById("pick-role").classList.toggle("hidden", !!role);
+    document.getElementById("progress").textContent =
+      role ? judged() + " of " + DATA.items.length + " judged" : "";
+    if (!role) return;
+    var onlyOpen = document.getElementById("only-open").checked;
+    DATA.items.forEach(function (it) {
+      var answer = answers[it.id] || {};
+      if (onlyOpen && answer.verdict) return;
+      var card = el("article", "card" + (answer.verdict ? " done" : ""));
+      var head = el("h3");
+      head.appendChild(el("span", "", it.id));
+      head.appendChild(el("span", "loc", it.location));
+      if (it.cwe) head.appendChild(el("span", "muted", "suggested: " + it.cwe));
+      card.appendChild(head);
+
+      card.appendChild(el("div", "muted", "What was reported (" + it.reports.length +
+        (it.reports.length === 1 ? " report)" : " reports)") + ":"));
+      var list = el("ul", "reports");
+      it.reports.forEach(function (r) {
+        var li = el("li");
+        li.appendChild(el("div", "", r.title));
+        if (r.detail) li.appendChild(el("div", "detail", r.detail));
+        if (r.evidence) li.appendChild(el("div", "detail", "Evidence: " + r.evidence));
+        if (r.recommendation) {
+          li.appendChild(el("div", "detail", "Suggested fix: " + r.recommendation));
+        }
+        list.appendChild(li);
+      });
+      card.appendChild(list);
+
+      if (it.lines.length) {
+        var pre = el("pre");
+        it.lines.forEach(function (line, i) {
+          var n = it.first + i;
+          var row = el("span", "ln" + (n >= it.start && n <= it.end ? " hit" : ""));
+          row.appendChild(el("span", "num", String(n)));
+          row.appendChild(document.createTextNode(line));
+          pre.appendChild(row);
+        });
+        card.appendChild(pre);
+      } else {
+        card.appendChild(el("p", "muted", "No code excerpt: no location was given, " +
+          "or the file is not in the snapshot."));
+      }
+
+      var choices = el("div", "choices");
+      ["tp", "fp", "unsure"].forEach(function (v) {
+        var label = el("label");
+        var input = el("input");
+        input.type = "radio"; input.name = "v-" + it.id; input.value = v;
+        input.checked = answer.verdict === v;
+        input.addEventListener("change", function () {
+          answers[it.id] = answers[it.id] || {};
+          answers[it.id].verdict = v;
+          save();
+          card.classList.add("done");
+          document.getElementById("progress").textContent =
+            judged() + " of " + DATA.items.length + " judged";
+        });
+        label.appendChild(input);
+        label.appendChild(el("span", "tag " + v, v));
+        choices.appendChild(label);
+      });
+      card.appendChild(choices);
+      var notes = el("textarea");
+      notes.placeholder = "Notes: why, the right CWE, what would settle it (optional)";
+      notes.value = answer.notes || "";
+      notes.addEventListener("input", function () {
+        answers[it.id] = answers[it.id] || {};
+        answers[it.id].notes = notes.value;
+        save();
+      });
+      card.appendChild(notes);
+      cards.appendChild(card);
+    });
+  }
+
+  document.getElementById("only-open").addEventListener("change", draw);
+
+  function csvField(value) {
+    var s = String(value == null ? "" : value);
+    return /[",\r\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+  }
+
+  document.getElementById("download").addEventListener("click", function () {
+    if (!role) { alert("Choose who you are first."); return; }
+    var open = DATA.items.length - judged();
+    if (open && !confirm(open + " candidate(s) not judged yet. Download anyway?")) return;
+    var rows = [DATA.columns.join(",")];
+    DATA.items.forEach(function (it) {
+      var answer = answers[it.id] || {};
+      var values = { candidate: it.id, target: it.target, location: it.location,
+                     cwe_suggested: it.cwe, notes: answer.notes || "" };
+      values[role] = answer.verdict || "";
+      rows.push(DATA.columns.map(function (c) { return csvField(values[c]); }).join(","));
+    });
+    var blob = new Blob([rows.join("\r\n") + "\r\n"], { type: "text/csv" });
+    var link = el("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = DATA.baseName + "-" + role + ".csv";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+  });
+
+  draw();
+})();
+</script>
+</body>
+</html>

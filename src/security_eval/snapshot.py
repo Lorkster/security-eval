@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import io
 import json
+import re
 import subprocess
 import zipfile
 from pathlib import Path, PurePosixPath
@@ -66,3 +67,40 @@ def import_code(repo: Path, paths: list[str], dest: Path, *, commit: str = "HEAD
     dest.mkdir(parents=True, exist_ok=True)
     (dest / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
     return dest / "manifest.json"
+
+
+_RELATIVE_IMPORT = re.compile(r"^\s*from\s+(\.+)([\w.]*)\s+import\s+(.+)$", re.MULTILINE)
+
+
+def missing_imports(root: Path) -> list[str]:
+    """Modules the snapshot's Python files import from their own package but did not include.
+
+    A slice of a project reads like a whole one to a model, but the code it
+    calls into is not there: in the first trial run, both harness lenses
+    reported that they could not check claims depending on modules the snapshot
+    left out. Better known when choosing the slice than found in the review.
+    Relative imports only -- they are the ones that certainly name the project's
+    own code.
+    """
+    missing: set[str] = set()
+    for file in sorted(root.rglob("*.py")):
+        package = file.parent
+        text = file.read_text(encoding="utf-8", errors="replace")
+        for dots, module, names in _RELATIVE_IMPORT.findall(text):
+            base = package
+            for _ in range(len(dots) - 1):
+                base = base.parent
+            if module:
+                candidates = [base.joinpath(*module.split("."))]
+            else:
+                # `from . import a, b`: each name is a module of the package.
+                candidates = [base / n.strip().split(" ")[0].strip("()")
+                              for n in names.split(",") if n.strip().strip("()")]
+            for target in candidates:
+                if not (target.with_suffix(".py").is_file() or (target / "__init__.py").is_file()
+                        or target.is_dir()):
+                    try:
+                        missing.add(target.relative_to(root).as_posix() + ".py")
+                    except ValueError:
+                        continue
+    return sorted(missing)

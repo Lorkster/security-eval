@@ -247,6 +247,7 @@ def _batching(matrix: Matrix) -> list[Check]:
 
 def _environment(matrix: Matrix, supervisor: str) -> list[Check]:
     out: list[Check] = []
+    out.extend(_harness_version())
     if "baseline" in matrix.conditions:
         try:
             import supervisor_harness  # noqa: F401
@@ -275,6 +276,22 @@ def _environment(matrix: Matrix, supervisor: str) -> list[Check]:
                                      f"{info.get('error') or 'missing credentials or unreachable'}"
                                      " (checked as a cell sees it: empty SUPERVISOR_HOME)"))
     return out
+
+
+def _harness_version() -> list[Check]:
+    """Whether the harness that will run is the one ``pyproject.toml`` pins."""
+    from .provenance import installed, pinned_commit
+
+    version, pin = installed(), pinned_commit()
+    if version.how == "missing":
+        return []
+    if pin and version.commit == pin and not version.dirty:
+        return [Check("ok", f"harness {pin[:12]}, the pinned commit ({version.how})")]
+    found = version.label() if version.commit else "an unidentifiable version"
+    return [Check("warn", f"the harness that will run is {found} ({version.how}"
+                          + (f" at {version.where}" if version.where else "") + "), not the "
+                          f"pinned {pin[:12] or 'commit'}. Each cell records what actually ran; "
+                          "for pinned runs, reinstall with pip install \".[harness]\" (not -e)")]
 
 
 def _providers(supervisor: str) -> dict[str, Any] | None:

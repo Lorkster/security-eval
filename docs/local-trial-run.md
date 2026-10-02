@@ -27,11 +27,23 @@ pre-registration names it as an attacker proxy (RQ7).
   pip install -e ".[dev,harness,scanners]"
   ```
 
-- [Ollama](https://ollama.com), running, with a code model pulled. Check its
-  context window with `ollama show <model>`, under *context length* and
-  *num_ctx*. The trial run below used `qwen3.8-code` (27B, 4-bit, about
-  17 GB, 128k context). Any code model works for checking the plumbing, and a
-  7–9B model is much faster if your GPU is small.
+- [Ollama](https://ollama.com), running, with a code model pulled. The trial
+  run below used `qwen3.8-code` (27B, 4-bit, about 17 GB, 128k context). Any
+  code model works for checking the plumbing, and a 7–9B model is much faster
+  if your GPU is small.
+- **Check the context window Ollama will actually use.** `ollama show <model>`
+  lists the model's *context length* and, under *Parameters*, a `num_ctx` if
+  the model sets one. Without `num_ctx`, Ollama uses its own small default
+  (a few thousand tokens). A longer prompt is then cut off at the start,
+  without any error, and the model reviews only the end of your code. A
+  30,000-token baseline needs `num_ctx` well above that. If it is missing,
+  make a variant that sets it:
+
+  ```bash
+  ollama create mymodel-64k -f Modelfile
+  ```
+
+  with a `Modelfile` of two lines: `FROM <model>` and `PARAMETER num_ctx 65536`.
 - No API keys.
 
 ## 2. Choose code you own
@@ -88,7 +100,7 @@ Copy `configs/matrix.local.json` and edit the target path and the model:
   "targets": ["../runs/_targets/mycode/manifest.json"],
   "conditions": ["baseline", "triage", "harness"],
   "models": ["ollama:qwen3.8-code:latest"],
-  "repeats": 1,
+  "repeats": 2,
   "budget_usd": 0,
   "tokens_per_run": { "baseline": [30000, 8000], "triage": [30000, 2000], "harness": [150000, 15000] }
 }
@@ -96,6 +108,11 @@ Copy `configs/matrix.local.json` and edit the target path and the model:
 
 Ollama costs nothing, so `budget_usd: 0` (no cap) is fine. `tokens_per_run`
 is only used by `estimate`. The run replaces it with measured figures.
+
+**Use at least two repeats, even here.** A model given the same code twice
+does not report the same things. In the trial below, two baseline runs on
+identical input shared one place out of six. With one repeat you cannot tell a
+finding from luck, or a change that helped from one that didn't.
 
 ## 6. Check, then run
 
@@ -172,7 +189,23 @@ One reviewer is enough for a trial. The study itself needs two, blind
 (`docs/beyond-known-issues.md`): each downloads their own file, and `import`
 takes both (`--sheet` twice), which is what kappa needs.
 
-## 9. From trial to budget
+## 9. Did a change help?
+
+After changing something (a prompt, a model, a harness version), run again into
+a new folder and compare:
+
+```bash
+security-eval compare runs/local runs/local-2
+```
+
+Per condition it shows both runs' outcomes, time, tokens and findings. It also
+shows how many places **both** runs found and the overlap as a share of all
+places either found, plus how often triage gave the same verdict twice. Low
+overlap on unchanged input is the noise floor: a difference smaller than that
+is not a result. Each cell also records the harness commit it ran on, and the
+report and the comparison show it.
+
+## 10. From trial to budget
 
 Turn the measured tokens into a price before choosing a paid model:
 
@@ -191,27 +224,46 @@ Two cautions:
 
 ---
 
-## The trial this guide was written from
+## The trial runs this guide was written from
 
-Four files (about 98,000 characters) at the trust boundary of a private
-Python project. Model: `qwen3.8-code`, local. One repeat. All of it free.
+Four files (about 98,000 characters) at the trust boundary of
+[supervisor-harness](https://github.com/Lorkster/supervisor-harness): `core/tools.py`,
+`core/paths.py`, `config.py` and `install.py`, at a fixed commit. Model:
+`qwen3.8-code`, local, one repeat per run. The same snapshot and matrix were run three
+times, changing only the harness:
 
-| condition | outcome | time | tokens in / out | findings (places) |
-| --- | --- | --- | --- | --- |
-| baseline | ok | 42 s | 30,296 / 1,047 | 4 (4) |
-| triage of Bandit's 4 | ok | 28 s | 121,410 / 1,177 | all 4 judged false positives |
-| harness | harness_stopped | 2 min | 142,714 / 11,264 | 9 (4) |
+| | run 1 | run 2 | run 3 |
+| --- | --- | --- | --- |
+| harness | `c8d0a47` | `bb5c8b7` (first scope fix) | `1f99b30` (both scope routes, readable tool results) |
+| baseline | 4 findings, 42 s | 3 findings, 41 s | 4 findings, 39 s |
+| triage of Bandit's 4 | all false positive | all false positive | all false positive |
+| harness outcome | stopped one agent | stopped its only agent | **ok**, no agent stopped |
+| harness findings (places) | 9 (4) | 0 | 8 (7) |
+| harness time, tokens in / out | 2 min, 143k / 11k | 38 s, 81k / 2k | 2 min 18 s, 213k / 11k |
 
-- **The tokens are the point.** At Sonnet 5.5 list prices, the same three cells
-  would cost roughly $0.07, $0.25 and $0.40 live, and much less for the first
-  two with batching and caching.
-- **Triage** dismissed Bandit's four findings: two "hardcoded passwords" that
-  were the strings `-` and `--`, a `subprocess` import, and a `subprocess`
-  call. Whether that was right is the reviewers' call, not the model's.
-- **Harness.** It stopped one agent because its turn repeated the previous one
-  exactly. The repeated turn's findings were still stored, so there were 9
-  findings in 4 places. The *places* column exists to make that visible.
-- **Ten candidates** went onto the review sheet.
+What the runs showed, in order:
+
+- **Two harness bugs that only real code exposed.** The planner wrote the workspace's
+  absolute path as each agent's scope (run 1), and also as the run-wide envelope that
+  agents inherit (run 2). Agents report relative paths, so every file they read counted
+  as "outside the declared scope". Drift control stopped them, and in run 2 the
+  correction persuaded the model that the files in front of it were not the code it had
+  been asked to review.
+- **A third harness bug: silently cut tool results.** Each round's results were sliced
+  to 8,000 characters. An agent asking for four files saw part of the first, with no
+  sign that anything was missing. It said it had not reached two of the files.
+- **Run 3, with all three fixed:** both agents read all four files in their first turn,
+  were accepted with a drift score of 0, and reported more specific issues.
+- **Same input, different answers.** The baseline got the same 30,296-token prompt every
+  time. Runs 1 and 2 shared one place out of six, and runs 2 and 3 shared two out of
+  five. Triage gave the same verdicts every time. That's why section 5 says to repeat.
+- **The tokens are the point.** At Sonnet 5.5 list prices, run 3's three cells would cost
+  roughly $0.07, $0.25 and $0.53 live, and less for the first two with batching and caching.
+- **The snapshot left context out.** Both agents in run 3 noted that `tools.py` calls into
+  modules that weren't in the snapshot. `import-code` now lists them when it takes one.
+
+Run 3's review page, with its 11 unjudged candidates, is in
+[`examples/review/`](../examples/review/).
 
 ## Troubleshooting
 
