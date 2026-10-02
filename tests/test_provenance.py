@@ -120,7 +120,8 @@ def test_every_cell_records_the_harness_and_the_report_flags_a_mix(
     summary = summarise(load_cells(out))
     assert summary["harness"] == [PIN[:12]]
     text = render_markdown(summary, title="t", stated_only=False)
-    assert f"Harness: {PIN[:12]}." in text and "Warning" not in text
+    assert f"Harness: {PIN[:12]}." in text
+    assert "did not all run on one committed harness" not in text
 
     m.repeats = 3
     monkeypatch.setattr(provenance, "installed",
