@@ -230,14 +230,16 @@ _FENCE = re.compile(r"^```(?:json)?\s*|\s*```$", re.MULTILINE)
 def parse_findings(text: str, route: str) -> list[SecurityFinding] | None:
     """The model's findings, or ``None`` if the answer is not the JSON asked for."""
     body = _FENCE.sub("", text.strip())
-    start, end = body.find("{"), body.rfind("}")
-    if start < 0 or end <= start:
-        return None
-    try:
-        data = json.loads(body[start:end + 1])
-        items = data["findings"]
-    except (json.JSONDecodeError, KeyError, TypeError):
-        return None
+    items = _bare_list(body)
+    if items is None:
+        start, end = body.find("{"), body.rfind("}")
+        if start < 0 or end <= start:
+            return None
+        try:
+            data = json.loads(body[start:end + 1])
+            items = data["findings"]
+        except (json.JSONDecodeError, KeyError, TypeError):
+            return None
     if not isinstance(items, list):
         return None
     out = []
@@ -258,6 +260,24 @@ def parse_findings(text: str, route: str) -> list[SecurityFinding] | None:
             source=f"baseline:{route}",
         ))
     return out
+
+
+def _bare_list(body: str) -> list[object] | None:
+    """The findings, when a model answered with the list itself and no object around it.
+
+    Seen from a local model asked without a format constraint: a ``[{...}, {...}]``
+    in a code fence. The object-shaped parse took the span from the first ``{``
+    to the last ``}`` -- several objects, not one -- and called it invalid.
+    """
+    stripped = body.lstrip()
+    if not stripped.startswith("["):
+        return None
+    end = stripped.rfind("]")
+    try:
+        data = json.loads(stripped[:end + 1])
+    except json.JSONDecodeError:
+        return None
+    return data if isinstance(data, list) else None
 
 
 def _confidence(raw: object) -> float:

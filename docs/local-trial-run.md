@@ -273,5 +273,6 @@ Run 3's review page, with its 11 unjudged candidates, is in
 | `provider ollama not available` | start Ollama (`ollama serve`) and check `ollama list` |
 | `too large for the baseline` | import fewer files |
 | a cell ends `invalid_output` | the model's answer was not the JSON asked for; the detail shows the start of it. Common with small models; a result, not a bug |
+| the report warns of answers with no findings in a few tokens | the model gave up rather than finding nothing. With Ollama this was its JSON-schema grammar collapsing on a long prompt: a 90,000-token review came back as `{"findings": []}` in 11 tokens. Harness [#77](https://github.com/Lorkster/supervisor-harness/pull/77) switches long prompts to JSON mode. Otherwise check `num_ctx` (section 1) and try a smaller slice |
 | `harness_stopped` | not an error: drift control stopped an agent, and the report says why |
 | `data policy forbids anthropic` | working as intended: the target is local-only. Approve other providers with `import-code --allow` only if the code may go there |

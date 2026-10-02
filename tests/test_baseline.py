@@ -89,3 +89,49 @@ def test_a_truncated_answer_says_so(
 
     assert result.outcome is Outcome.INVALID_OUTPUT
     assert "truncated" in result.detail
+
+
+def test_a_bare_list_of_findings_is_accepted() -> None:
+    """Seen from a local model without a format constraint: the list, fenced, no object."""
+    from security_eval.runners.baseline import parse_findings
+
+    text = ('```json\n[{"title": "a", "cwe": "CWE-89", "location": "app/db.py:10-12", '
+            '"severity": "high", "confidence": 0.9},\n {"title": "b", "cwe": "CWE-79", '
+            '"location": "app/x.py:3", "severity": "low", "confidence": 0.4}]\n```')
+    found = parse_findings(text, "ollama:m")
+    assert found is not None and [f.title for f in found] == ["a", "b"]
+    assert found[0].location is not None and found[0].location.start_line == 10
+    assert parse_findings('{"findings": []}', "ollama:m") == []
+    assert parse_findings("[not json", "ollama:m") is None
+
+
+def test_an_empty_answer_in_a_few_tokens_is_flagged_in_the_report(
+    tmp_path: Path, prices: Any
+) -> None:
+    from security_eval.budget import Usage
+    from security_eval.matrix import Matrix, run_matrix
+    from security_eval.report import load_cells, render_markdown, summarise
+    from security_eval.runners.base import RunResult
+
+    from .conftest import TOY
+
+    class Empty:
+        condition = "baseline"
+
+        def __init__(self, out: int) -> None:
+            self.out = out
+
+        def run(self, target: Target, route: str, workdir: Path, task: str = "",
+                effort: str = "") -> RunResult:
+            return RunResult(Outcome.OK, [], Usage(90_000, self.out))
+
+    m = Matrix(name="e", targets=[TOY], conditions=["baseline"], models=["ollama:m"],
+               tokens_per_run={"baseline": (1, 1)})
+    run_matrix(m, {"baseline": Empty(11)}, tmp_path / "short", prices, progress=lambda _: None)
+    summary = summarise(load_cells(tmp_path / "short"))
+    assert len(summary["empty_answers"]) == 1
+    assert "gave up" in render_markdown(summary, title="t", stated_only=False)
+
+    run_matrix(m, {"baseline": Empty(900)}, tmp_path / "long", prices, progress=lambda _: None)
+    assert summarise(load_cells(tmp_path / "long"))["empty_answers"] == [], \
+        "a considered answer that found nothing is not flagged"

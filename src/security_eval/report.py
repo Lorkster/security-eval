@@ -191,7 +191,7 @@ def summarise(cells: list[CellResult]) -> dict[str, Any]:
             "harness": sorted({str(c.record.extra["harness"]) for c in cells
                                if c.record.extra.get("harness")}),
             "triage": _triage(cells), "scanners": _scanners(cells), "fixes": _fixes(cells),
-            "open": _open(cells)}
+            "open": _open(cells), "empty_answers": _empty_answers(cells)}
 
 
 def _triage(cells: list[CellResult]) -> list[dict[str, Any]]:
@@ -272,6 +272,27 @@ def _fixes(cells: list[CellResult]) -> list[dict[str, Any]]:
             "cost_per_verified_fix": round(cost / verified, 4) if verified else None,
         })
     return rows
+
+
+#: An answer this short with no findings in it is more often a model that gave
+#: up than a clean result: a local model under a JSON grammar answered a
+#: 90,000-token review with ``{"findings": []}`` in 11 tokens, and the cell
+#: read as "ok, found nothing".
+EMPTY_ANSWER_TOKENS = 64
+
+
+def _empty_answers(cells: list[CellResult]) -> list[str]:
+    """Detection cells that came back ok with no findings and almost no output."""
+    out = []
+    for c in cells:
+        r = c.record
+        if c.is_triage or c.is_fix or r.outcome is not Outcome.OK or r.condition == "fake":
+            continue
+        found = (len(c.reported or []) if c.is_open
+                 else c.score.findings if c.score is not None else None)
+        if found == 0 and r.output_tokens < EMPTY_ANSWER_TOKENS:
+            out.append(r.cell)
+    return sorted(out)
 
 
 def _open(cells: list[CellResult]) -> list[dict[str, Any]]:
@@ -407,6 +428,13 @@ def _tokens(cells: list[CellResult]) -> dict[str, list[int]]:
 
 def render_markdown(summary: dict[str, Any], *, title: str, stated_only: bool) -> str:
     lines = [f"# {title}", ""]
+    empty = summary.get("empty_answers") or []
+    if empty:
+        lines += [f"**Warning:** {len(empty)} cell(s) answered with no findings in under "
+                  f"{EMPTY_ANSWER_TOKENS} output tokens, which is more often a model that gave "
+                  "up than a clean result: " + ", ".join(empty[:10]) + ". With a local model "
+                  "on a long prompt, check its context window and output format "
+                  "(docs/local-trial-run.md).", ""]
     versions = summary.get("harness") or []
     if versions:
         lines += [f"Harness: {', '.join(versions)}.", ""]
