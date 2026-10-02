@@ -234,7 +234,7 @@ times, changing only the harness:
 
 | | run 1 | run 2 | run 3 |
 | --- | --- | --- | --- |
-| harness | `c8d0a47` | `bb5c8b7` (first scope fix) | `1f99b30` (both scope routes, readable tool results) |
+| harness | `c8d0a47` | `bb5c8b7` (first scope fix) | `1f99b30`, merged as `163a965` (both scope routes, readable tool results) |
 | baseline | 4 findings, 42 s | 3 findings, 41 s | 4 findings, 39 s |
 | triage of Bandit's 4 | all false positive | all false positive | all false positive |
 | harness outcome | stopped one agent | stopped its only agent | **ok**, no agent stopped |
