@@ -79,9 +79,9 @@ judge every candidate:
 security-eval scan snyk benchmarks/real-1/manifest.json      # the company's tool
 security-eval run configs/matrix.real.json
 security-eval adjudicate export runs/real --sheet adjudication/sheet.csv --key adjudication/key.json
-#   ... two reviewers fill in reviewer_a / reviewer_b, independently ...
-security-eval adjudicate import --sheet adjudication/sheet.csv --key adjudication/key.json \
-    --matrix configs/matrix.real.json
+#   ... each reviewer opens adjudication/review.html, judges, downloads their file ...
+security-eval adjudicate import --sheet sheet-reviewer_a.csv --sheet sheet-reviewer_b.csv \
+    --key adjudication/key.json --matrix configs/matrix.real.json
 ```
 
 A real-code target is a manifest with `"open": true` and no answer key.
@@ -90,15 +90,34 @@ A real-code target is a manifest with `"open": true` and no answer key.
 
 1. **Pool.** Every candidate from every condition, model and scanner. Findings
    at the same place (same file, overlapping lines) become one candidate.
-2. **Blind.** The sheet shows the location, the code, and what was reported,
-   with scanner rule ids stripped. It does not show who reported it. The order
-   is shuffled. The key that maps candidates to sources is a separate file the
-   reviewers do not open until both have finished.
-3. **Two reviewers, independently.** Each marks every candidate `tp`, `fp` or
-   `unsure`. A `tp` should be backed by something checkable: the line, the input
-   that reaches it, and ideally a failing unit test. Never an exploit.
-4. **Resolve disagreements.** Candidates where the reviewers differ are listed;
-   they discuss and fill `final`. Report how many there were.
+2. **Blind.** `export` writes `review.html`, a page that opens offline in any
+   browser. It shows each candidate's location, the code with the flagged lines
+   marked, and what was reported, with scanner rule ids stripped. It does not
+   show who reported it, and the order is shuffled. The key that maps
+   candidates to sources is a separate file the reviewers do not open until
+   both have finished.
+3. **Two reviewers, independently.** Each opens the page, chooses *Reviewer A*
+   or *Reviewer B*, and marks every candidate:
+
+   | Verdict | Meaning |
+   | --- | --- |
+   | `tp` | A real vulnerability in this code. You can point to the line, the untrusted input that reaches it, and what an attacker would gain. Ideally you could write a unit test that fails because of it. Never write an exploit. |
+   | `fp` | Not a vulnerability here: the input is not attacker-controlled, it is already validated, or the code is safe as used (MD5 for a cache key, say). A real bug that is not a security issue is also `fp`; say so in the notes. |
+   | `unsure` | You cannot decide from the code with reasonable effort, for example because it depends on how the code is deployed. Say in the notes what would settle it. |
+
+   Judge whether the issue is real, not whether the report is well written. Right
+   place but wrong CWE is still `tp` if the issue described is real; note the
+   right CWE.
+
+   Answers are kept in the browser as they go. **Download my verdicts** saves a
+   copy of the sheet with only that reviewer's column filled
+   (`sheet-reviewer_a.csv`), so neither sees the other's answers and nobody edits
+   a shared file. A reviewer who prefers a spreadsheet can fill their column of
+   `sheet.csv` directly instead.
+4. **Resolve disagreements.** `import` lists candidates where the reviewers
+   differ. They discuss, and one of them chooses *Final* on the page, judges
+   only those, and downloads `sheet-final.csv`, which goes to `import` with the
+   other two. Report how many disagreements there were.
 5. **Score.** `adjudicate import` reports:
    - **agreement**: Cohen's kappa;
    - per condition and model: **precision** (verified / decided);
