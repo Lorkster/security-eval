@@ -28,6 +28,7 @@ from .budget import PriceTable
 from .manifest import ManifestError, Target, load_target
 from .matrix import BATCHABLE, Matrix, estimate, training_cutoff
 from .runners.base import EFFORT_LEVELS, EFFORT_PROVIDERS, load_prompts, prompt_hash
+from .scoring import calibrate
 from .timesplit import looks_like_advisory
 
 LOCAL_PROVIDERS = frozenset({"fake", "ollama"})
@@ -53,6 +54,10 @@ def run_checks(matrix: Matrix, prices: PriceTable, *, fake: bool = False,
         targets.append(target)
         out.append(Check("ok", f"target {target.id}: {len(target.vulnerabilities)} "
                                f"vulnerabilities, {len(target.decoys)} decoys"))
+        # Results are only as good as the scorer that produces them: answers
+        # whose score is known are scored first (scoring.calibrate).
+        out.extend(Check("fail", f"target {target.id}: scorer calibration: {problem}")
+                   for problem in calibrate(target))
     public = [t.id for t in targets if t.public]
     if public:
         out.append(Check("warn", f"public target(s) {', '.join(public)}: may be in the models' "

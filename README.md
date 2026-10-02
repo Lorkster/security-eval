@@ -163,9 +163,32 @@ the repository text is prompt-cached across a target's findings.
 - recall per CWE, showing which classes of flaw each condition misses;
 - the median tokens per run measured, ready to replace the budget assumptions.
 
+Beside the scores, and never changing them (exploratory, not preregistered):
+
+- **consistency across repeats**: which vulnerabilities a condition finds every
+  time, which only sometimes, and which never. The same median recall can be
+  either a blind spot or a coin toss;
+- **is the quoted code there?**: whether the code a finding quotes is at the
+  lines it names, checked without a model. A quote found nowhere in the file is
+  the clearest sign of a made-up finding, and one can still land on the right
+  lines and score;
+- **missed, or never read?**: how much of the target each cell read, and
+  whether each miss was in a file the condition never opened or one it read and
+  passed over. The baseline is sent everything; the harness records what its
+  agents opened;
+- a **warning** when a target's code has changed since a cell ran on it. Every
+  cell records a fingerprint of the code, and scores are recomputed against the
+  code as it is now.
+
 Scores are recomputed from each cell's saved findings, so a scoring fix reaches
 runs already made. `--stated-only` counts a location recovered from evidence as
 none, which shows how much that leniency is doing.
+
+The scorer is checked before anything is trusted. `security-eval validate` and
+`security-eval check` score answers whose score is known: the answer key itself,
+a finding on each decoy, the wrong CWE, a file that does not exist, and the
+hand-written `calibration/good.json` and `bad.json` beside each manifest. A
+benchmark that fails is refused.
 
 ## Layout
 
@@ -179,7 +202,10 @@ benchmarks/          targets and their answer keys (manifest.json)
 src/security_eval/
   finding.py         the finding format: CWE, file:line, severity, triage verdict
   manifest.py        benchmark targets, validated against their code
-  scoring.py         deterministic matching; precision/recall, loose and strict
+  scoring.py         deterministic matching; precision/recall, loose and strict;
+                     calibration against answers whose score is known
+  checks.py          beside the scores: the target's fingerprint, whether quoted
+                     code is where a finding says, misses split by what was read
   sarif.py           SARIF 2.1.0 in (scanner output) and out
   budget.py          prices, cost, the budget guard
   ledger.py          append-only record of every cell; resumption
@@ -222,8 +248,16 @@ tokens, cost, seconds. Each cell's `findings.json` and `score.json` sit under
    Include decoys. Where a flaw can fairly be reported in more than one place,
    list the others under `also`; where several CWEs describe it correctly, give
    `cwe` as a list. Otherwise a correct finding is scored as wrong.
-3. `security-eval validate benchmarks/<name>/manifest.json`
-4. Have someone else review the manifest against the code.
+3. Write `benchmarks/<name>/calibration/good.json` and `bad.json`: findings in
+   the shape of a cell's `findings.json`, written the way a model would write
+   them. `good.json` must score full strict recall and full precision
+   (a location given only in the evidence, a line range a little off, an
+   alternative CWE, the other end of a cross-file flaw). `bad.json` must score
+   no true positive (each decoy, the right flaw in the wrong file). They sit
+   beside `src/`, never in it, so no model is sent them.
+4. `security-eval validate benchmarks/<name>/manifest.json`. It checks the
+   manifest against the code and calibrates the scorer.
+5. Have someone else review the manifest against the code.
 
 The toy target is too easy to tell models apart: a local 27B code model scored
 5/5 on it, CWE included. It proves the plumbing works. `notes-api` is the

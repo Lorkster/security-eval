@@ -365,6 +365,20 @@ class _Run:
             (workdir / f"{name}.json").write_text(json.dumps(data, indent=2), encoding="utf-8")
         target = self.targets[cell.manifest]
         extra: dict[str, Any] = {**result.extra, "manifest": str(cell.manifest)}
+        from .checks import target_digest
+
+        # Which code this cell ran on. The report rescores against the manifest
+        # as it is today, and says so if the code under it has since changed.
+        extra["target_digest"] = target_digest(target.root)
+        coverage = result.artifacts.get("coverage")
+        files_sent = getattr(runner, "files_sent", None)
+        if coverage is None and files_sent is not None:
+            coverage = {"files_read": files_sent(target)}
+        if coverage is not None:
+            if "coverage" not in result.artifacts:     # artifacts were written above
+                (workdir / "coverage.json").write_text(json.dumps(coverage, indent=2),
+                                                       encoding="utf-8")
+            extra["files_read"] = len(coverage.get("files_read") or [])
         if runner.condition != "fake":
             from .provenance import installed
 

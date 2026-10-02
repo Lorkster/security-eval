@@ -1,0 +1,128 @@
+[
+  {
+    "title": "SQL injection in search",
+    "cwe": "CWE-89",
+    "location": {
+      "path": "notes/db.py",
+      "start_line": 20,
+      "end_line": 21
+    },
+    "severity": "high",
+    "confidence": 0.8,
+    "detail": "",
+    "evidence": [
+      "`sql = \"SELECT id, title FROM notes WHERE owner_id = ? AND title LIKE ?\"`"
+    ],
+    "recommendation": "",
+    "triage": null,
+    "source": "calibration",
+    "id": "",
+    "location_source": "stated",
+    "triage_reason": ""
+  },
+  {
+    "title": "Timing leak comparing sessions",
+    "cwe": "CWE-208",
+    "location": {
+      "path": "notes/auth.py",
+      "start_line": 20,
+      "end_line": 20
+    },
+    "severity": "high",
+    "confidence": 0.8,
+    "detail": "",
+    "evidence": [
+      "`return hmac.compare_digest(presented, expected)`"
+    ],
+    "recommendation": "",
+    "triage": null,
+    "source": "calibration",
+    "id": "",
+    "location_source": "stated",
+    "triage_reason": ""
+  },
+  {
+    "title": "Note deletable by anyone",
+    "cwe": "CWE-639",
+    "location": {
+      "path": "notes/handlers.py",
+      "start_line": 25,
+      "end_line": 27
+    },
+    "severity": "high",
+    "confidence": 0.8,
+    "detail": "",
+    "evidence": [
+      "`note = db.get_note(conn, note_id)`"
+    ],
+    "recommendation": "",
+    "triage": null,
+    "source": "calibration",
+    "id": "",
+    "location_source": "stated",
+    "triage_reason": ""
+  },
+  {
+    "title": "SSRF in avatar fetch",
+    "cwe": "CWE-918",
+    "location": {
+      "path": "notes/fetch.py",
+      "start_line": 14,
+      "end_line": 15
+    },
+    "severity": "high",
+    "confidence": 0.8,
+    "detail": "",
+    "evidence": [
+      "`url = f\"{AVATAR_BASE}/{int(user_id)}.png\"`"
+    ],
+    "recommendation": "",
+    "triage": null,
+    "source": "calibration",
+    "id": "",
+    "location_source": "stated",
+    "triage_reason": ""
+  },
+  {
+    "title": "XSS in the note list",
+    "cwe": "CWE-79",
+    "location": {
+      "path": "notes/render.py",
+      "start_line": 14,
+      "end_line": 14
+    },
+    "severity": "high",
+    "confidence": 0.8,
+    "detail": "",
+    "evidence": [
+      "`items = \"\".join(f\"<li>{html.escape(r['title'])}</li>\" for r in rows)`"
+    ],
+    "recommendation": "",
+    "triage": null,
+    "source": "calibration",
+    "id": "",
+    "location_source": "stated",
+    "triage_reason": ""
+  },
+  {
+    "title": "Weak hash for ETags",
+    "cwe": "CWE-328",
+    "location": {
+      "path": "notes/render.py",
+      "start_line": 19,
+      "end_line": 19
+    },
+    "severity": "high",
+    "confidence": 0.8,
+    "detail": "",
+    "evidence": [
+      "`return hashlib.md5(content).hexdigest()`"
+    ],
+    "recommendation": "",
+    "triage": null,
+    "source": "calibration",
+    "id": "",
+    "location_source": "stated",
+    "triage_reason": ""
+  }
+]

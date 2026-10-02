@@ -1,0 +1,107 @@
+[
+  {
+    "title": "SQL injection in find_user",
+    "cwe": "CWE-89",
+    "location": {
+      "path": "app/db.py",
+      "start_line": 11,
+      "end_line": 11
+    },
+    "severity": "high",
+    "confidence": 0.8,
+    "detail": "",
+    "evidence": [
+      "`query = f\"SELECT id, username, email FROM users WHERE username = '{username}'\"`"
+    ],
+    "recommendation": "",
+    "triage": null,
+    "source": "calibration",
+    "id": "",
+    "location_source": "stated",
+    "triage_reason": ""
+  },
+  {
+    "title": "Path traversal reading documents",
+    "cwe": "CWE-22",
+    "location": {
+      "path": "app/files.py",
+      "start_line": 10,
+      "end_line": 12
+    },
+    "severity": "high",
+    "confidence": 0.8,
+    "detail": "",
+    "evidence": [
+      "app/files.py:10 `path = os.path.join(UPLOADS, name)` joins a user-supplied name"
+    ],
+    "recommendation": "",
+    "triage": null,
+    "source": "calibration",
+    "id": "",
+    "location_source": "recovered",
+    "triage_reason": ""
+  },
+  {
+    "title": "Command injection in ping",
+    "cwe": "CWE-78",
+    "location": {
+      "path": "app/tools.py",
+      "start_line": 6,
+      "end_line": 8
+    },
+    "severity": "high",
+    "confidence": 0.8,
+    "detail": "",
+    "evidence": [
+      "result = subprocess.run(f\"ping -c 1 {host}\", shell=True, capture_output=True, text=True)"
+    ],
+    "recommendation": "",
+    "triage": null,
+    "source": "calibration",
+    "id": "",
+    "location_source": "stated",
+    "triage_reason": ""
+  },
+  {
+    "title": "Hard-coded admin password",
+    "cwe": "CWE-798",
+    "location": {
+      "path": "./app/config.py",
+      "start_line": 9,
+      "end_line": 9
+    },
+    "severity": "high",
+    "confidence": 0.8,
+    "detail": "",
+    "evidence": [
+      "`ADMIN_PASSWORD = \"Tr0ub4dor-admin-2019\"`"
+    ],
+    "recommendation": "",
+    "triage": null,
+    "source": "calibration",
+    "id": "",
+    "location_source": "stated",
+    "triage_reason": ""
+  },
+  {
+    "title": "Unsafe deserialisation of the preferences cookie",
+    "cwe": "CWE-502",
+    "location": {
+      "path": "app\\session.py",
+      "start_line": 9,
+      "end_line": 9
+    },
+    "severity": "high",
+    "confidence": 0.8,
+    "detail": "",
+    "evidence": [
+      "    9  return pickle.loads(base64.b64decode(cookie))"
+    ],
+    "recommendation": "",
+    "triage": null,
+    "source": "calibration",
+    "id": "",
+    "location_source": "stated",
+    "triage_reason": ""
+  }
+]

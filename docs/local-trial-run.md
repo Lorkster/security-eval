@@ -144,6 +144,16 @@ Real code has no answer key, so nothing is scored. The report's section
 - **time**;
 - **why the harness stopped any agent**.
 
+Then two checks that need no answer key:
+
+- **Is the quoted code where the finding says?** For each finding, whether the
+  code it quotes is at the lines it names, elsewhere in the file, or nowhere in
+  it. *Quote not in file* is worth a reviewer's first look: it is the clearest
+  sign of a made-up finding.
+- **Missed, or never read?** How many files each cell read. The baseline is sent
+  every source file. The harness records what its agents opened, so a low
+  number here means the harness ran over code it never looked at.
+
 Below that are the **measured tokens per run**, ready to paste into a real
 matrix.
 

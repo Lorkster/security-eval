@@ -26,6 +26,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from .checks import EVIDENCE_VERDICTS, attribute_misses, check_evidence, target_digest
 from .finding import SecurityFinding
 from .ledger import Ledger, Outcome, Record
 from .manifest import Target, load_target
@@ -45,6 +46,14 @@ class CellResult:
     fixes: list[dict[str, Any]] | None = None
     #: Open targets: what was reported, kept for adjudication rather than scored.
     reported: list[SecurityFinding] | None = None
+    #: Detection cells: how many findings got each evidence verdict (checks.py).
+    evidence: dict[str, int] | None = None
+    #: What the condition read, if it recorded it (coverage.json); None if unknown.
+    files_read: list[str] | None = None
+    #: Scored cells with known coverage: missed issues, split by whether they were read.
+    misses: dict[str, list[str]] | None = None
+    #: The target's code has changed since this cell ran on it.
+    target_changed: bool = False
 
     @property
     def is_triage(self) -> bool:
@@ -104,6 +113,7 @@ def load_cells(out_dir: Path, *, tolerance: int = DEFAULT_TOLERANCE,
     for record in ledger.records():
         latest[record.cell] = record
     targets: dict[str, Target] = {}
+    digests: dict[str, str] = {}
     cells = []
     for record in latest.values():
         manifest = record.extra.get("manifest")
@@ -116,24 +126,50 @@ def load_cells(out_dir: Path, *, tolerance: int = DEFAULT_TOLERANCE,
             continue
         if manifest not in targets:
             targets[manifest] = load_target(manifest)
+            digests[manifest] = target_digest(targets[manifest].root)
+        target = targets[manifest]
+        ran_on = record.extra.get("target_digest")
+        changed = bool(ran_on) and ran_on != digests[manifest]
         findings = [SecurityFinding.from_dict(f)
                     for f in json.loads(findings_file.read_text(encoding="utf-8"))]
+        triage = record.extra.get("kind") == "triage"
+        # A triage cell judges a scanner's findings: their evidence is the
+        # scanner's, and what was read is the scanner's business.
+        evidence: dict[str, int] = defaultdict(int)
+        for f in [] if triage else findings:
+            evidence[check_evidence(f, target.root, tolerance)] += 1
+        read = None if triage else _files_read(findings_file.parent)
         if record.extra.get("open"):
             # Adjudicated, not scored (`security-eval adjudicate`); described
             # in the report, so a trial run on real code still shows its figures.
-            cells.append(CellResult(record, None, reported=findings))
+            cells.append(CellResult(record, None, reported=findings,
+                                    evidence=dict(evidence) or None, files_read=read,
+                                    target_changed=changed))
             continue
-        if record.extra.get("kind") == "triage":
-            target = targets[manifest]
+        if triage:
             cells.append(CellResult(record, None, triage=score_triage(
-                [f.triage for f in findings], label(findings, target, tolerance))))
+                [f.triage for f in findings], label(findings, target, tolerance)),
+                target_changed=changed))
             continue
+        scored = score(findings, target, tolerance, stated_only=stated_only)
         cells.append(CellResult(
-            record,
-            score(findings, targets[manifest], tolerance, stated_only=stated_only),
+            record, scored,
             recovered=sum(1 for f in findings if f.location_source == "recovered"),
+            evidence=dict(evidence), files_read=read, target_changed=changed,
+            misses=(None if read is None
+                    else attribute_misses(scored.missed, target.vulnerabilities, read)),
         ))
     return cells
+
+
+def _files_read(cell_dir: Path) -> list[str] | None:
+    file = cell_dir / "coverage.json"
+    if not file.is_file():
+        return None
+    try:
+        return [str(p) for p in json.loads(file.read_text(encoding="utf-8"))["files_read"]]
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
 
 
 def _fix_cell(out_dir: Path, record: Record) -> CellResult:
@@ -191,7 +227,86 @@ def summarise(cells: list[CellResult]) -> dict[str, Any]:
             "harness": sorted({str(c.record.extra["harness"]) for c in cells
                                if c.record.extra.get("harness")}),
             "triage": _triage(cells), "scanners": _scanners(cells), "fixes": _fixes(cells),
-            "open": _open(cells), "empty_answers": _empty_answers(cells)}
+            "open": _open(cells), "empty_answers": _empty_answers(cells),
+            "consistency": _consistency(groups), "evidence": _evidence(cells),
+            "coverage": _coverage(cells),
+            "changed_targets": sorted(c.record.cell for c in cells if c.target_changed)}
+
+
+def _detection_groups(cells: list[CellResult]) -> dict[GroupKey, list[CellResult]]:
+    """Completed detection cells, scored or open, by condition, model, prompt and effort."""
+    grouped: dict[GroupKey, list[CellResult]] = defaultdict(list)
+    for c in cells:
+        r = c.record
+        if c.is_triage or c.is_fix or r.outcome not in (Outcome.OK, Outcome.HARNESS_STOPPED):
+            continue
+        if c.score is None and not c.is_open:
+            continue
+        grouped[(r.condition, r.model, r.prompt or "plain", r.effort or "default")].append(c)
+    return grouped
+
+
+def _consistency(groups: dict[GroupKey, Group]) -> list[dict[str, Any]]:
+    """Per vulnerability, how many of a group's repeats found it (completed cells).
+
+    A median recall of 0.5 over four repeats can be the same half found every
+    time or a different half each time. Those are different results -- one is a
+    condition with a blind spot, the other a coin -- and only this shows which.
+    """
+    out = []
+    for key in sorted(groups):
+        by_target: dict[str, list[CellResult]] = defaultdict(list)
+        for c in groups[key].scored("completed"):
+            manifest = c.record.extra.get("manifest")
+            if manifest:
+                by_target[str(manifest)].append(c)
+        for manifest, done in sorted(by_target.items()):
+            target = load_target(manifest)
+            n = len(done)
+            found = {v.id: sum(1 for c in done if c.score is not None
+                               and v.id in {m.issue_id for m in c.score.matches})
+                     for v in target.vulnerabilities}
+            out.append({
+                "condition": key[0], "model": key[1], "prompt": key[2], "effort": key[3],
+                "target": target.id, "repeats": n,
+                "every": sorted(v for v, k in found.items() if k == n),
+                "some": sorted(v for v, k in found.items() if 0 < k < n),
+                "never": sorted(v for v, k in found.items() if k == 0),
+                "found": dict(sorted(found.items())),
+            })
+    return out
+
+
+def _evidence(cells: list[CellResult]) -> list[dict[str, Any]]:
+    """Per group, how many findings' quoted code is where they say (checks.py)."""
+    rows = []
+    for key, group in sorted(_detection_groups(cells).items()):
+        counts: dict[str, int] = defaultdict(int)
+        for c in group:
+            for verdict, n in (c.evidence or {}).items():
+                counts[verdict] += n
+        if counts:
+            rows.append({"condition": key[0], "model": key[1], "prompt": key[2],
+                         "effort": key[3], "cells": len(group),
+                         "verdicts": {v: counts.get(v, 0) for v in EVIDENCE_VERDICTS}})
+    return rows
+
+
+def _coverage(cells: list[CellResult]) -> list[dict[str, Any]]:
+    """Per group, how much of the target each cell read, and why scored misses were missed."""
+    rows = []
+    for key, group in sorted(_detection_groups(cells).items()):
+        known = [c for c in group if c.files_read is not None]
+        scored = [c for c in known if c.misses is not None]
+        rows.append({
+            "condition": key[0], "model": key[1], "prompt": key[2], "effort": key[3],
+            "cells": len(group), "unknown": len(group) - len(known),
+            "files_read": spread([float(len(c.files_read or [])) for c in known]),
+            "missed_never_read": sum(len((c.misses or {}).get("never_read", [])) for c in scored),
+            "missed_read": sum(len((c.misses or {}).get("read", [])) for c in scored),
+            "scored": len(scored),
+        })
+    return rows
 
 
 def _triage(cells: list[CellResult]) -> list[dict[str, Any]]:
@@ -435,6 +550,12 @@ def render_markdown(summary: dict[str, Any], *, title: str, stated_only: bool) -
                   "up than a clean result: " + ", ".join(empty[:10]) + ". With a local model "
                   "on a long prompt, check its context window and output format "
                   "(docs/local-trial-run.md).", ""]
+    changed = summary.get("changed_targets") or []
+    if changed:
+        lines += [f"**Warning:** the code of the target has changed since {len(changed)} "
+                  "cell(s) ran on it, and they are scored against the code as it is now: "
+                  + ", ".join(changed[:10]) + ". Re-run them, or score them at the commit "
+                  "they ran on.", ""]
     versions = summary.get("harness") or []
     if versions:
         lines += [f"Harness: {', '.join(versions)}.", ""]
@@ -541,6 +662,49 @@ def render_markdown(summary: dict[str, Any], *, title: str, stated_only: bool) -
                 f"{r['unverified_cells']} | {r['verified']} / {r['flaws']} "
                 f"({_fmt(r['verified_rate'])}) | {failed or '—'} | {upstream} | "
                 f"{r['overfit']} | {'—' if cpf is None else f'${cpf:.2f}'} |")
+    if summary.get("consistency"):
+        lines += ["", "## Consistency across repeats (completed runs)", "",
+                  "Which vulnerabilities a condition finds every time, which only sometimes, "
+                  "and which never. The same median recall can be either.", "",
+                  "| condition | model | prompt | effort | target | repeats | every repeat | "
+                  "some | never |",
+                  "| --- | --- | --- | --- | --- | --- | --- | --- | --- |"]
+        for r in summary["consistency"]:
+            some = ", ".join(f"{v} ({r['found'][v]}/{r['repeats']})" for v in r["some"])
+            lines.append(f"| {r['condition']} | {r['model']} | {r['prompt']} | {r['effort']} | "
+                         f"{r['target']} | {r['repeats']} | {', '.join(r['every']) or '—'} | "
+                         f"{some or '—'} | {', '.join(r['never']) or '—'} |")
+    if summary.get("evidence"):
+        lines += ["", "## Is the quoted code where the finding says? (exploratory)", "",
+                  "Checked without a model, against the target's files. *Quote not in file* is "
+                  "code the finding quotes that the file does not contain -- the clearest sign "
+                  "of a made-up finding, which can still land on the right lines by chance. "
+                  "*Nothing quoted*: the evidence is prose. Scores are not changed by this.", "",
+                  "| condition | model | prompt | effort | cells | at the stated lines | "
+                  "elsewhere in the file | quote not in file | nothing quoted | no such file | "
+                  "past end of file | no location |",
+                  "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |"]
+        for r in summary["evidence"]:
+            v = r["verdicts"]
+            lines.append(f"| {r['condition']} | {r['model']} | {r['prompt']} | {r['effort']} | "
+                         f"{r['cells']} | " + " | ".join(str(v[k]) for k in EVIDENCE_VERDICTS)
+                         + " |")
+    if summary.get("coverage"):
+        lines += ["", "## Missed, or never read? (exploratory)", "",
+                  "*Files read*: per cell. The baseline is sent every source file; the "
+                  "harness reads what its agents open. A miss in a file never read is a "
+                  "coverage failure; a miss in a file that was read is a detection failure. "
+                  "*Unknown*: cells that did not record what they read (a harness from "
+                  "before it measured this).", "",
+                  "| condition | model | prompt | effort | cells | files read | "
+                  "missed, never read | missed, read | unknown |",
+                  "| --- | --- | --- | --- | --- | --- | --- | --- | --- |"]
+        for r in summary["coverage"]:
+            scored = r["scored"] > 0
+            lines.append(f"| {r['condition']} | {r['model']} | {r['prompt']} | {r['effort']} | "
+                         f"{r['cells']} | {_fmt_n(r['files_read'])} | "
+                         f"{r['missed_never_read'] if scored else '—'} | "
+                         f"{r['missed_read'] if scored else '—'} | {r['unknown']} |")
     if summary["tokens_per_run"]:
         lines += ["", "## Measured tokens per run (median, input incl. cache / output)", "",
                   "Put these in the matrix's `tokens_per_run` before estimating the next one:",
