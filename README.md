@@ -50,6 +50,8 @@ security-eval gate ollama:qwen3.8-code:latest --repeats 1
 files you own (`security-eval import-code`, local models only by default),
 running every condition on a local model, reading the report, and judging the
 findings. You come away with the measured token figures the budget needs.
+An example of the review page reviewers judge on is in
+[`examples/review/`](examples/review/).
 
 ## The stages of spending
 
@@ -189,6 +191,9 @@ src/security_eval/
   fixes.py           RQ8: apply a proposal, check it stage by stage
   timesplit.py       time-split targets from a real fix commit
   snapshot.py        real code you own as a target, for a free trial run
+  provenance.py      which harness commit ran, checked against the pin, recorded per cell
+  compare.py         two runs side by side, with how much of what they found overlaps
+  review_page.py     the offline page reviewers judge candidates on
   adjudication.py    blind pooling, review sheets, kappa and the open-world metrics
   report.py          the ledger, aggregated into the study's numbers
   runners/

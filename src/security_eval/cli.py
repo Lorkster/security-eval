@@ -191,6 +191,15 @@ def cmd_import_code(args: argparse.Namespace) -> int:
     if chars > limit:
         print("too large for the baseline: import fewer files", file=sys.stderr)
     print("may go to: " + (", ".join(target.allowed_providers) or "any provider"))
+    from .snapshot import missing_imports
+
+    missing = missing_imports(target.root)
+    if missing:
+        shown = ", ".join(missing[:8]) + (f", and {len(missing) - 8} more" if len(missing) > 8
+                                          else "")
+        print(f"note: the snapshot imports {len(missing)} module(s) of its own package that "
+              f"are not in it: {shown}. Models and reviewers will not see them; add the "
+              "ones a finding could depend on.")
     print(f"next: security-eval scan bandit {manifest}; then a matrix naming it "
           "(docs/local-trial-run.md)")
     return 0 if chars <= limit else 1
@@ -299,6 +308,22 @@ def cmd_report(args: argparse.Namespace) -> int:
     write_cells_csv(cells, out_dir / f"cells{suffix}.csv")
     print(markdown)
     print(f"written: report{suffix}.md, report{suffix}.json, cells{suffix}.csv in {out_dir}")
+    return 0
+
+
+def cmd_compare(args: argparse.Namespace) -> int:
+    """Two runs side by side, with how much of what they found overlaps."""
+    from .compare import compare, render
+
+    run_a, run_b = Path(args.run_a), Path(args.run_b)
+    for run in (run_a, run_b):
+        if not (run / "ledger.jsonl").is_file():
+            print(f"no ledger in {run}", file=sys.stderr)
+            return 2
+    markdown = render(compare(run_a, run_b, args.tolerance), run_a.name, run_b.name)
+    if args.out:
+        Path(args.out).write_text(markdown, encoding="utf-8")
+    print(markdown)
     return 0
 
 
@@ -474,6 +499,13 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--stated-only", action="store_true",
                    help="count a location recovered from evidence as no location")
     p.set_defaults(func=cmd_report)
+
+    p = sub.add_parser("compare", help="two runs side by side: did a change help, or is it noise?")
+    p.add_argument("run_a")
+    p.add_argument("run_b")
+    p.add_argument("--tolerance", type=int, default=3)
+    p.add_argument("--out", default="", help="also write the comparison to this file")
+    p.set_defaults(func=cmd_compare)
 
     p = sub.add_parser("score", help="score a findings file against a manifest")
     p.add_argument("manifest")

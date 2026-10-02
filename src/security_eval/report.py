@@ -188,6 +188,8 @@ def summarise(cells: list[CellResult]) -> dict[str, Any]:
         rows.append(row)
 
     return {"groups": rows, "by_cwe": _by_cwe(groups), "tokens_per_run": _tokens(cells),
+            "harness": sorted({str(c.record.extra["harness"]) for c in cells
+                               if c.record.extra.get("harness")}),
             "triage": _triage(cells), "scanners": _scanners(cells), "fixes": _fixes(cells),
             "open": _open(cells)}
 
@@ -405,6 +407,12 @@ def _tokens(cells: list[CellResult]) -> dict[str, list[int]]:
 
 def render_markdown(summary: dict[str, Any], *, title: str, stated_only: bool) -> str:
     lines = [f"# {title}", ""]
+    versions = summary.get("harness") or []
+    if versions:
+        lines += [f"Harness: {', '.join(versions)}.", ""]
+        if len(versions) > 1 or any("uncommitted" in v for v in versions):
+            lines += ["**Warning:** the cells did not all run on one committed harness "
+                      "version, so they are not one comparison.", ""]
     if stated_only:
         lines += ["*Stated locations only: a location recovered from evidence counts as none.*",
                   ""]

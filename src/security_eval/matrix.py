@@ -365,6 +365,12 @@ class _Run:
             (workdir / f"{name}.json").write_text(json.dumps(data, indent=2), encoding="utf-8")
         target = self.targets[cell.manifest]
         extra: dict[str, Any] = {**result.extra, "manifest": str(cell.manifest)}
+        if runner.condition != "fake":
+            from .provenance import installed
+
+            # Which harness produced this cell: the pin says what should run,
+            # this says what did (see provenance.py).
+            extra["harness"] = installed().label()
         kind = getattr(runner, "kind", "detect")
         if kind == "fix":
             # Nothing to score yet: the proposals are checked in the sandbox by

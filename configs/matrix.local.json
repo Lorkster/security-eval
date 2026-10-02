@@ -3,7 +3,7 @@
   "targets": ["../runs/_targets/mycode/manifest.json"],
   "conditions": ["baseline", "triage", "harness"],
   "models": ["ollama:qwen3.8-code:latest"],
-  "repeats": 1,
+  "repeats": 2,
   "budget_usd": 0,
   "tokens_per_run": { "baseline": [30000, 8000], "triage": [30000, 2000], "harness": [150000, 15000] }
 }
