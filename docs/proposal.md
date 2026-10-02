@@ -106,15 +106,16 @@ cells; each is a pull request against the harness, not a workaround here.
 | **P8** | agents are not shown what they read, and the run envelope has the same scope bug | the second trial run, on P7: tool results were cut to 8,000 characters per round without a marker, so a lens reading four files saw part of one; and the planner's run-wide envelope, also an absolute path, gave agents the false scope signal P7 removed from their own scopes. With both fixed, the third run read every file and finished without a stop | **done**: [PR #76](https://github.com/Lorkster/supervisor-harness/pull/76), merged 2026-10-02 |
 
 | **P9** | a security review of the harness itself, and Ollama's schema grammar collapsing on long prompts | before students install it: a run id could delete outside the store, a criterion command could carry a program inline, commands inherited the user's credentials, a timeout did not stop a `.cmd` shim's child, a regex could hang the search tool. Separately, the 18-file trial's baseline came back as `{"findings": []}` in 11 tokens, read as "found nothing" | **done**: [PR #77](https://github.com/Lorkster/supervisor-harness/pull/77), merged 2026-10-02 |
-| **P10** | an analysis agent's "done" is accepted however little of its scope it read | in the 18-file trial the security lens read 4 of 18 files, named the rest as unread in its own self-assessment, and was accepted after one turn of six. Without this, a harness miss cannot be told apart as "never looked" or "looked and missed" | open: [PR #78](https://github.com/Lorkster/supervisor-harness/pull/78) |
+| **P10** | an analysis agent's "done" is accepted however little of its scope it read | in the 18-file trial the security lens read 4 of 18 files, named the rest as unread in its own self-assessment, and was accepted after one turn of six. Without this, a harness miss cannot be told apart as "never looked" or "looked and missed" | **done**: [PR #78](https://github.com/Lorkster/supervisor-harness/pull/78), merged 2026-10-02 |
 
-P1 to P9 are merged as of 2026-10-02, and `pyproject.toml` pins the harness to P9's merge
-commit (`bb7cbcb`). The pin moved from `c8d0a47`, then `163a965`, before any pilot had
-run, because P7 to P9 change how the harness condition behaves: under the old pins,
-agents could be stopped for drift that wasn't there, could review files they had only
-partly seen, and a local model's long answer could come back empty. P10 changes it again
-(an agent is sent back once to read more), so the pin moves once more when it merges,
-still before the pilot. Moving it mid-study changes a condition, so any later move
+All ten are merged as of 2026-10-02, and `pyproject.toml` pins the harness to P10's
+merge commit (`8cc2f29`). The pin moved from `c8d0a47`, then `163a965` and `bb7cbcb`,
+before any pilot had run, because P7 to P10 change how the harness condition behaves:
+under the old pins, agents could be stopped for drift that wasn't there, could review
+files they had only partly seen, a local model's long answer could come back empty, and
+an analysis agent could finish having read a fraction of its scope. P10 also makes the
+harness record which files its agents opened, which the report's "missed, or never
+read?" section needs. Moving it mid-study changes a condition, so any later move
 belongs in the pre-registration, and `security-eval check` warns when the installed
 harness is not the pinned commit.
 
